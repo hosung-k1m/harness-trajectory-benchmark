@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/hosung-k1m/harness-trajectory-benchmark/schemas/evidence/run-evidence-manifest.v1.schema.json",
+  "title": "Run evidence manifest v1",
+  "type": "object",
+  "required": ["schemaVersion", "runId", "runSpecDigest", "observationPlanDigest", "capabilityManifestDigest", "sensorHealthDigest", "trackedEventChainHead", "rawChainHeads", "artifacts", "merkleRoot", "sealedAt"],
+  "properties": {
+    "schemaVersion": {"type":"string", "minLength":1},
+    "runId": {"type":"string", "minLength":1},
+    "runSpecDigest": {"$ref":"#/$defs/sha256"},
+    "observationPlanDigest": {"$ref":"#/$defs/sha256"},
+    "capabilityManifestDigest": {"$ref":"#/$defs/sha256"},
+    "sensorHealthDigest": {"$ref":"#/$defs/sha256"},
+    "trackedEventChainHead": {"$ref":"#/$defs/sha256"},
+    "rawChainHeads": {"type":"object", "additionalProperties":{"$ref":"#/$defs/sha256"}},
+    "artifacts": {"type":"array", "items":{"type":"object", "required":["path","sha256","size"], "properties":{"path":{"type":"string","minLength":1},"sha256":{"$ref":"#/$defs/sha256"},"size":{"type":"integer","minimum":0}}}},
+    "merkleRoot": {"$ref":"#/$defs/sha256"},
+    "signature": {"type":"string"},
+    "sealedAt": {"type":"string", "format":"date-time"}
+  },
+  "$defs": {"sha256":{"type":"string","pattern":"^[0-9a-f]{64}$"}}
+}

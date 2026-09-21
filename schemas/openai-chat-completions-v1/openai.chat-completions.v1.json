@@ -1,0 +1,121 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://harness-trajectory-benchmark.dev/schemas/openai.chat-completions-v1/openai.chat-completions.v1.json",
+  "title": "Pinned OpenAI-compatible Chat Completions v1",
+  "oneOf": [
+    {"$ref": "#/$defs/request"},
+    {"$ref": "#/$defs/response"},
+    {"$ref": "#/$defs/chunk"},
+    {"$ref": "#/$defs/tool"},
+    {"$ref": "#/$defs/usage"}
+  ],
+  "$defs": {
+    "message": {
+      "type": "object",
+      "required": ["role"],
+      "properties": {
+        "role": {"enum": ["system", "user", "assistant", "tool", "developer"]},
+        "content": {},
+        "tool_calls": {"type": "array", "items": {"$ref": "#/$defs/toolCall"}}
+      },
+      "anyOf": [{"required": ["content"]}, {"required": ["tool_calls"]}]
+    },
+    "toolCall": {
+      "type": "object",
+      "required": ["id", "type", "function"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "type": {"const": "function"},
+        "function": {
+          "type": "object",
+          "required": ["name", "arguments"],
+          "properties": {
+            "name": {"type": "string", "minLength": 1},
+            "arguments": {"type": "string"}
+          }
+        }
+      }
+    },
+    "tool": {
+      "type": "object",
+      "required": ["type", "function"],
+      "properties": {
+        "type": {"const": "function"},
+        "function": {
+          "type": "object",
+          "required": ["name", "parameters"],
+          "properties": {
+            "name": {"type": "string", "minLength": 1},
+            "parameters": {
+              "type": "object",
+              "required": ["type"],
+              "properties": {"type": {"const": "object"}}
+            }
+          }
+        }
+      }
+    },
+    "usage": {
+      "type": "object",
+      "required": ["prompt_tokens", "completion_tokens", "total_tokens"],
+      "properties": {
+        "prompt_tokens": {"type": "integer", "minimum": 0},
+        "completion_tokens": {"type": "integer", "minimum": 0},
+        "total_tokens": {"type": "integer", "minimum": 0}
+      }
+    },
+    "finishReason": {"enum": ["stop", "length", "tool_calls", "content_filter", "function_call"]},
+    "request": {
+      "type": "object",
+      "required": ["model", "messages"],
+      "properties": {
+        "model": {"type": "string", "minLength": 1},
+        "messages": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/message"}},
+        "tools": {"type": "array", "items": {"$ref": "#/$defs/tool"}},
+        "stream": {"type": "boolean"},
+        "tool_choice": {},
+        "temperature": {"type": "number"},
+        "stop": {}
+      }
+    },
+    "responseChoice": {
+      "type": "object",
+      "required": ["index", "message", "finish_reason"],
+      "properties": {
+        "index": {"type": "integer", "minimum": 0},
+        "message": {"allOf": [{"$ref": "#/$defs/message"}, {"properties": {"role": {"const": "assistant"}}}]},
+        "finish_reason": {"$ref": "#/$defs/finishReason"}
+      }
+    },
+    "response": {
+      "type": "object",
+      "required": ["id", "object", "model", "choices"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "object": {"const": "chat.completion"},
+        "model": {"type": "string", "minLength": 1},
+        "choices": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/responseChoice"}},
+        "usage": {"$ref": "#/$defs/usage"}
+      }
+    },
+    "chunkChoice": {
+      "type": "object",
+      "required": ["index", "delta"],
+      "properties": {
+        "index": {"type": "integer", "minimum": 0},
+        "delta": {"type": "object"},
+        "finish_reason": {"oneOf": [{"$ref": "#/$defs/finishReason"}, {"type": "null"}]}
+      }
+    },
+    "chunk": {
+      "type": "object",
+      "required": ["id", "object", "model", "choices"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "object": {"const": "chat.completion.chunk"},
+        "model": {"type": "string", "minLength": 1},
+        "choices": {"type": "array", "items": {"$ref": "#/$defs/chunkChoice"}}
+      }
+    }
+  }
+}

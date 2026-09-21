@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/hosung-k1m/harness-trajectory-benchmark/schemas/evidence/raw-record.v1.schema.json",
+  "title": "Raw record v1 JSON projection",
+  "description": "Integrity is defined by the canonical binary frame, not this JSON projection.",
+  "type": "object",
+  "required": ["runId", "sensorId", "bootId", "sourceSeq", "recordType", "encoding", "payload", "previousRecordSha256", "recordSha256"],
+  "properties": {
+    "runId":{"type":"string","minLength":1}, "sensorId":{"type":"string","minLength":1}, "bootId":{"type":"string","minLength":1}, "sourceSeq":{"type":"integer","minimum":1},
+    "observedMonotonicNs":{"type":"integer","minimum":0}, "observedWallTime":{"type":"string","format":"date-time"}, "recordType":{"type":"string","minLength":1}, "encoding":{"type":"string","minLength":1},
+    "payload":{"type":"string","contentEncoding":"base64"}, "previousRecordSha256":{"type":"string","pattern":"^(|[0-9a-f]{64})$"}, "recordSha256":{"type":"string","pattern":"^[0-9a-f]{64}$"}
+  }
+}

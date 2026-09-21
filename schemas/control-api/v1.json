@@ -1,0 +1,12 @@
+{
+  "$schema":"https://json-schema.org/draft/2020-12/schema",
+  "$id":"https://harness-trajectory-benchmark.dev/schemas/control-api/v1.json",
+  "title":"Benchmark Control Plane API v1",
+  "type":"object",
+  "$defs": {
+    "runSpec":{"type":"object","required":["schemaVersion","harness","suite","backend"],"additionalProperties":false,"properties":{"schemaVersion":{"const":"v1"},"harness":{"type":"string","minLength":1},"suite":{"type":"string","minLength":1},"backend":{"type":"string","minLength":1},"parameters":{"type":"object"},"verified":{"type":"boolean"}}},
+    "createRunRequest":{"type":"object","required":["spec"],"additionalProperties":false,"properties":{"spec":{"$ref":"#/$defs/runSpec"},"idempotencyKey":{"type":"string","minLength":1}}},
+    "lifecycleMutation":{"type":"object","required":["action"],"additionalProperties":false,"properties":{"action":{"enum":["start","stop"]},"idempotencyKey":{"type":"string","minLength":1},"reason":{"type":"string"}}}
+  },
+  "description":"POST /v1/runs accepts createRunRequest. POST /v1/runs/{id}/lifecycle accepts lifecycleMutation. GET /v1/runs/{id}/events returns NDJSON or SSE. List endpoints use opaque cursor and limit. GET /v1/compatibility negotiates API and schemas."
+}

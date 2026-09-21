@@ -1,0 +1,131 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/hosung-k1m/harness-trajectory-benchmark/schemas/tracked-events/tracked-events.v1.schema.json",
+  "title": "TrackedEvent v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["seq", "time", "type", "data"],
+  "properties": {
+    "seq": {"type": "integer", "minimum": 1},
+    "time": {"type": "integer", "minimum": 0},
+    "type": {"type": "string", "minLength": 1},
+    "data": {"type": "object"},
+    "ignorable": {"type": "boolean"},
+    "sourceEventSeqs": {"type": "array", "items": {"type": "integer", "minimum": 1}, "uniqueItems": true},
+    "surfaceOp": {
+      "oneOf": [
+        {"const": "append"},
+        {"type": "object", "additionalProperties": false, "required": ["op", "start", "end"], "properties": {"op": {"const": "replace"}, "start": {"type": "integer", "minimum": 1}, "end": {"type": "integer", "minimum": 1}}}
+      ]
+    }
+  },
+  "$defs": {
+    "positive": {"type": "integer", "minimum": 1},
+    "turn": {"type": "object", "required": ["turn"], "properties": {"turn": {"$ref": "#/$defs/positive"}}},
+    "turnStep": {"type": "object", "required": ["turn", "step"], "properties": {"turn": {"$ref": "#/$defs/positive"}, "step": {"$ref": "#/$defs/positive"}}},
+    "message": {
+      "type": "object",
+      "required": ["id", "role", "content", "source"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "role": {"type": "string", "minLength": 1},
+        "content": {"type": "array", "items": {"type": "object", "required": ["type"]}},
+        "source": {"type": "object", "required": ["kind"]}
+      }
+    },
+    "userMessage": {
+      "type": "object",
+      "required": ["id", "role", "content", "source"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "role": {"const": "user"},
+        "content": {"type": "array", "items": {"type": "object", "required": ["type"]}},
+        "source": {"type": "object", "required": ["kind"]}
+      }
+    },
+    "source": {
+      "type": "object",
+      "required": ["sensorId", "sensorType", "backend", "backendVersion", "bootId", "sourceSeq", "trustDomain"],
+      "properties": {
+        "sensorId": {"type": "string", "minLength": 1},
+        "sensorType": {"type": "string", "minLength": 1},
+        "backend": {"type": "string", "minLength": 1},
+        "backendVersion": {"type": "string", "minLength": 1},
+        "bootId": {"type": "string", "minLength": 1},
+        "sourceSeq": {"$ref": "#/$defs/positive"},
+        "trustDomain": {"type": "string", "minLength": 1}
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "required": ["rawRecordSha256", "rawStreamId", "rawSourceSeqStart", "rawSourceSeqEnd", "normalizerSha256", "normalizerVersion", "observationLayer", "observationMethod"],
+      "properties": {
+        "rawRecordSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "rawStreamId": {"type": "string", "minLength": 1},
+        "rawSourceSeqStart": {"$ref": "#/$defs/positive"},
+        "rawSourceSeqEnd": {"$ref": "#/$defs/positive"},
+        "normalizerSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "normalizerVersion": {"type": "string", "minLength": 1},
+        "observationLayer": {"type": "string", "minLength": 1},
+        "observationMethod": {"type": "string", "minLength": 1}
+      }
+    },
+    "observationData": {
+      "type": "object",
+      "required": ["runId", "source", "observation", "evidence", "details"],
+      "properties": {
+        "runId": {"type": "string", "minLength": 1},
+        "source": {"$ref": "#/$defs/source"},
+        "observation": {"type": "object", "required": ["clockId", "receivedTime"]},
+        "evidence": {"$ref": "#/$defs/evidence"}
+      }
+    },
+    "networkPlaintext": {
+      "type": "object",
+      "required": ["boundary", "capturePoint", "connectionId", "streamId", "transport", "direction", "sequence", "source", "destination", "protocol", "payload", "capture"],
+      "properties": {
+        "boundary": {"const": "sandbox"},
+        "capturePoint": {"type": "string", "minLength": 1},
+        "connectionId": {"type": "string", "minLength": 1},
+        "streamId": {"type": "string", "minLength": 1},
+        "transport": {"enum": ["tcp", "udp", "quic", "icmp", "raw-ip"]},
+        "direction": {"enum": ["ingress", "egress"]},
+        "sequence": {"$ref": "#/$defs/positive"},
+        "payload": {"type": "object", "required": ["encoding", "length", "sha256"]},
+        "capture": {"type": "object", "required": ["method", "backend", "verified"]}
+      }
+    },
+    "modelExchange": {
+      "type": "object",
+      "required": ["schema", "provider", "providerModel", "endpoint", "modelExchangeId", "body"],
+      "properties": {
+        "schema": {"const": "openai.chat-completions.v1"},
+        "provider": {"type": "string", "minLength": 1},
+        "providerModel": {"type": "string", "minLength": 1},
+        "endpoint": {"type": "string", "minLength": 1},
+        "modelExchangeId": {"type": "string", "minLength": 1},
+        "body": {"type": "object"}
+      }
+    }
+  },
+  "allOf": [
+    {"if": {"properties": {"type": {"not": {"enum": ["turn/start", "user/message", "request/header", "request/context", "llm/retry", "step/start", "assistant/chunk", "assistant/message", "tool/call", "tool/result", "step/end", "turn/end", "compaction/start", "compaction/summary", "compaction/end", "session/end-seed"]}}}}, "then": {"required": ["ignorable"], "properties": {"ignorable": {"const": true}}}},
+    {"if": {"properties": {"type": {"const": "turn/start"}}}, "then": {"properties": {"data": {"$ref": "#/$defs/turn"}}}},
+    {"if": {"properties": {"type": {"const": "user/message"}}}, "then": {"properties": {"data": {"$ref": "#/$defs/userMessage"}}}},
+    {"if": {"properties": {"type": {"const": "request/header"}}}, "then": {"properties": {"data": {"required": ["header", "reason"]}}}},
+    {"if": {"properties": {"type": {"const": "request/context"}}}, "then": {"properties": {"data": {"required": ["provider", "model", "contextWindow"]}}}},
+    {"if": {"properties": {"type": {"const": "llm/retry"}}}, "then": {"properties": {"data": {"required": ["retry", "maxRetries", "delayMs", "failure"]}}}},
+    {"if": {"properties": {"type": {"enum": ["step/start", "step/end"]}}}, "then": {"properties": {"data": {"$ref": "#/$defs/turnStep"}}}},
+    {"if": {"properties": {"type": {"const": "assistant/chunk"}}}, "then": {"properties": {"data": {"required": ["turn", "step", "chunk"]}}}},
+    {"if": {"properties": {"type": {"const": "assistant/message"}}}, "then": {"properties": {"data": {"required": ["turn", "step", "message"], "properties": {"message": {"$ref": "#/$defs/message"}}}}}},
+    {"if": {"properties": {"type": {"const": "tool/call"}}}, "then": {"properties": {"data": {"required": ["turn", "step", "callId", "name", "arguments"]}}}},
+    {"if": {"properties": {"type": {"const": "tool/result"}}}, "then": {"properties": {"data": {"required": ["turn", "step", "message"], "properties": {"message": {"$ref": "#/$defs/message"}}}}}},
+    {"if": {"properties": {"type": {"const": "turn/end"}}}, "then": {"properties": {"data": {"required": ["turn", "reason"]}}}},
+    {"if": {"properties": {"type": {"enum": ["compaction/start", "compaction/summary", "compaction/end"]}}}, "then": {"properties": {"data": {"required": ["startSeq", "endSeq"]}}}},
+    {"if": {"properties": {"type": {"const": "session/end-seed"}}}, "then": {"properties": {"data": {"maxProperties": 0}}}},
+    {"if": {"properties": {"type": {"pattern": "^(sensor|process|resource|policy|system|stdio|file|ipc|dns|network|tls|http|model|mcp|verifier)/"}}}, "then": {"required": ["ignorable"], "properties": {"ignorable": {"const": true}, "data": {"$ref": "#/$defs/observationData"}}}},
+    {"if": {"properties": {"type": {"const": "network/plaintext"}}}, "then": {"properties": {"data": {"properties": {"details": {"$ref": "#/$defs/networkPlaintext"}}}}}},
+    {"if": {"properties": {"type": {"enum": ["model/request", "model/stream-chunk", "model/response"]}}}, "then": {"properties": {"data": {"properties": {"details": {"$ref": "#/$defs/modelExchange"}}}}}}
+  ],
+  "$comment": "Cross-event constraints such as gap-free ordering, earlier-only lineage, ordered ranges, and raw coverage are enforced by the Go validators."
+}
