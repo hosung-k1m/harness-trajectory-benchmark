@@ -5,10 +5,9 @@ The normative architecture is in
 [`architecture-handoff.md`](architecture-handoff.md); the existing conversation
 trajectory semantics are defined by [`trackedEvents.md`](trackedEvents.md).
 
-Phase 0 established the contracts and validators. Phase 1 covers the shared
-API, CLI, minimal web view, durable run catalog, and portable COSE-signed
-evidence, with end-to-end acceptance using mock observation data. Real gVisor
-execution is Phase 2 work, not a prerequisite for the mock-data gate.
+The platform is delivered in numbered phases. Current phase status,
+implementation tasks, and acceptance gates are maintained only in
+[`tasks.md`](tasks.md).
 
 Mock and local-process runs remain **ineligible for verified execution**.
 The compatibility backend has no filesystem, DNS, boundary-flow, or plaintext
@@ -26,9 +25,9 @@ make test-e2e
 go run ./cmd/benchmark --help
 ```
 
-`make test-e2e` builds the real CLI and control-plane binaries and runs the opt-in mock-data and restart subprocess gates. Regular `make check` does not run these opt-in tests. Fixtures and exported bundles are retained under ignored `dist/e2e/`. Browser acceptance was checked locally in the installed Chrome; it is not part of this Make target.
+`make test-e2e` builds the real CLI and control-plane binaries and runs the opt-in mock-data and restart subprocess gates. Regular `make check` does not run these opt-in tests. Fixtures and exported bundles are retained under ignored `dist/e2e/`. Browser behavior is outside this Make target; its acceptance status is recorded in `tasks.md`.
 
-## Phase 1 development run
+## Local development run
 
 Start the API and web status view:
 
@@ -78,13 +77,10 @@ trusted public key rather than accepting a key embedded in the bundle:
 go run ./cmd/benchmark evidence validate --bundle evidence-bundle.json --public-key .benchmark/dev-signing-key.ed25519.pub --extract extracted-evidence
 ```
 
-Phase 1 acceptance uses deterministic mock observation data, with real
-sequencing, persistence, signing, export, and verification. Mock success does
-not establish real network capture or isolation. gVisor implementation and
-runtime acceptance remain Phase 2 work. Browser acceptance covers selecting
-persisted clean and faulted runs, matching trajectory and evidence summaries
-to the API, downloading bundles, and reloading the page in Chrome. No browser
-dependency is added to the project.
+The deterministic mock-observation mode exercises real sequencing,
+persistence, signing, export, and verification without establishing isolated
+execution or real network capture. Delivery claims and browser acceptance
+results are recorded in [`tasks.md`](tasks.md).
 
 Repository conventions:
 

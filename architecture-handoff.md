@@ -953,90 +953,15 @@ schemas/
 
 Use one Go module initially. Keep backend implementations under `internal` and expose only the contracts that external backend plugins actually need. JSON Schemas are generated or checked from the Go source of truth and committed for non-Go consumers and fixture validation.
 
-## 19. Delivery plan
+## 19. Delivery tracking
 
-### Phase 0: contract and fixtures
+This document defines the stable target architecture and contracts. Delivery
+status, phase scope, implementation tasks, sequencing, and acceptance gates are
+maintained only in [`tasks.md`](tasks.md). Keeping operational status out of the
+architecture prevents completed work and current gates from diverging across
+multiple documents.
 
-- Promote the envelope and existing event types in `trackedEvents.md` into a versioned schema.
-- Establish the Go module, package boundaries, formatting, linting, and test conventions.
-- Define the versioned control-plane API shared by the CLI and web UI, including lifecycle idempotency and ordered event streaming.
-- Define the agent-native CLI command tree, structured output envelopes, stable exit codes, and compatibility discovery.
-- Define the observation payload base and new system, network, health, run, provider, MCP, benchmark, and evidence event payloads.
-- Define `NetworkPlaintext` as the mandatory backend-neutral representation for all ingress and egress content.
-- Vendor and pin `openai.chat-completions.v1`, including request, response, streaming chunk, tool-call, finish-reason, and usage fixtures.
-- Define `RunSpec`, `ObservationPlan`, `CapabilityManifest`, `SensorHealth`, `RawRecord`, and `RunEvidenceManifest`.
-- Define exact framing, idempotency, global append, late-record, batching, correction, and sealing semantics.
-- Create golden event-log fixtures covering one turn, tool use, process and file effects, DNS, plaintext network streams, an OpenAI-compatible LLM exchange, token usage, sensor loss, and verifier completion.
-- Build a validator that rejects sequence gaps, invalid lineage, missing evidence references, and invalid event payloads.
-
-Exit criterion: the same golden `tracked-events.jsonl` is accepted by the Go conversation replayer, evidence verifier, and analysis projection code; its plaintext streams reconstruct byte-for-byte; and all remote LLM events validate against the pinned OpenAI-compatible schema.
-
-### Phase 1: appender and mock-data end-to-end acceptance
-
-- Implement a vertical slice through the shared API, agent-native CLI, and minimal web run-status view so both surfaces exercise the same control-plane path from the start.
-- Implement the durable single-writer TrackedEvent appender, restart recovery, and persisted lifecycle idempotency.
-- Keep the local-process compatibility backend for trusted development workloads; it is not an isolation boundary.
-- Use a test-only execution driver and deterministic mock system, DNS, boundary-flow, plaintext, provider, and health records to exercise the real observation and evidence pipeline.
-- Preserve mock provider-native bytes and endpoint identity, and normalize provider records to `openai.chat-completions.v1` without inventing missing usage.
-- Normalize observations into TrackedEvent candidates; only the trusted appender assigns global sequence numbers.
-- Export portable evidence bundles with independently chained raw sources, sealed trajectories, artifact digests, and development-key COSE Sign1 signatures.
-
-Exit criterion: a mock-data run can be created, followed, inspected, and integrity-checked through the CLI and web UI using the same API; its catalog, trajectory, evidence, and idempotency results survive restart; every raw source sequence is represented by an event or explicit batch; every mock boundary flow reconciles to plaintext in both directions; every mock LLM call has a valid OpenAI-compatible projection; and a deliberately dropped plaintext chunk invalidates verification. Exported evidence must validate in a separate process and reject byte tampering. Browser behavior is checked manually unless browser automation is explicitly enabled.
-
-Mock and local-process runs remain ineligible for verified execution. These tests prove the control-plane and evidence contracts, not isolation, real TLS interception, destination-preserving acquisition, or independent host sensor completeness. Real gVisor execution and capture belong to Phase 2.
-
-### Phase 2: gVisor prototype
-
-- Implement the gVisor backend lifecycle.
-- Create one cgroup, network namespace, veth pair, filesystem scope, and artifact scope per run.
-- Start with `runsc --strace` plus runtime logs for best-effort system telemetry.
-- Add Netstack and host-veth network evidence plus a backend-specific plaintext acquisition path.
-- Use the shared plaintext contract, protocol observers, LLM normalizer, appender, verifier, and manifests.
-- Compare a benchmark run against the local-process compatibility baseline and mock-data contract fixtures for trajectory and artifact parity.
-
-Exit criterion: a full run produces one replayable TrackedEvent log, reconstructable plaintext for every boundary connection, and an evidence report that honestly marks debug-log-derived system coverage as best effort.
-
-### Phase 3: structured gVisor sensors
-
-- Replace debug-text parsing with structured Sentry records.
-- Add stable process, file, pipe, socket, and flow identities.
-- Instrument Netstack DNS, loopback, connections, packets, and byte counters.
-- Add fail-closed plaintext capture and reconciliation for every allowed network protocol.
-- Emit records over a protected host collector channel with loss and backpressure accounting.
-- Add synchronous process, file, and connection enforcement hooks.
-
-Exit criterion: the gVisor capability profile can claim complete observation for the event families required by the first verified benchmark profile.
-
-### Phase 4: provider protocols, MCP, and semantic correlation
-
-- Complete provider-native protocol observers and adapters to the pinned OpenAI-compatible schema and normalize usage.
-- Add trusted local MCP stdio supervision and remote MCP HTTP handling.
-- Correlate model intent, tool calls, processes, files, IPC, DNS, flows, HTTP exchanges, and verifier effects.
-- Record correlation strength and provenance instead of mutating source facts.
-- Add per-actor, per-provider, per-model, per-call, and per-tool projections.
-
-Exit criterion: an analyst can move from any tool call to its proven system and network effects and back to raw evidence.
-
-### Phase 5: verification and leaderboard policy
-
-- Sign capability, observation-plan, health, and run evidence manifests.
-- Implement the standalone public verifier.
-- Define verified-run profiles and evidence tiers.
-- Enforce admission rules in the leaderboard.
-- Add adversarial tests for direct egress, alternate DNS, certificate pinning, unsupported QUIC, custom encryption, missing TLS keys, plaintext stream gaps, sensor termination, buffer overflow, forged workload logs, clock skew, and collector interruption.
-
-Exit criterion: invalid or incomplete telemetry reliably prevents verified admission without hiding the otherwise completed benchmark result.
-
-### Phase 6: second backend validation
-
-- Implement Firecracker using guest plaintext and system sensors plus host TAP monitoring.
-- Reuse schemas, appender, plaintext and protocol normalizers, correlation, evidence, verifier, and leaderboard logic.
-- Compare equivalent runs across gVisor and Firecracker.
-- Treat backend-specific changes required outside backend adapters and capabilities as feedback that the boundary is incomplete.
-
-Exit criterion: both backends produce the same logical TrackedEvent contract, the same byte-for-byte `network/plaintext` representation, and the same verification workflow while retaining truthful backend-specific acquisition methods and capability differences.
-
-## 20. Immediate decisions and next actions
+## 20. Architectural decisions
 
 Decisions established by this handoff:
 
@@ -1057,16 +982,3 @@ Decisions established by this handoff:
 15. Provider protocol observers convert captured native requests, responses, and stream frames into pinned `openai.chat-completions.v1` events after capture.
 16. Network coverage uses backend attribution plus an independent host boundary view, destination-preservation checks, and plaintext reconciliation.
 17. Health and coverage failures are themselves events and can invalidate verification.
-
-Next actions, in order:
-
-1. Create the Go module and convert `trackedEvents.md` from a descriptive summary into Go types plus a machine-validated v1 JSON Schema without changing existing event meanings.
-2. Define the shared control-plane API and implement the initial agent-native CLI skeleton with structured output and stable exit codes.
-3. Implement `NetworkPlaintext`, `RawRecord`, `ObservationPlan`, capability, health, and evidence-manifest Go types.
-4. Vendor the pinned `openai.chat-completions.v1` schema and implement validation fixtures for requests, streaming chunks, responses, tools, and usage.
-5. Define the first verified benchmark profile with plaintext required and opaque traffic denied.
-6. Create golden JSONL fixtures that reconstruct full duplex plaintext byte-for-byte and an append-log validator before implementing a backend.
-7. Implement the appender, plaintext stream assembler, flow-to-plaintext reconciliation, and raw-to-event reconciliation checks.
-8. Implement one provider-native plaintext decoder and its OpenAI-compatible normalization adapter, without changing the harness endpoint.
-9. Wrap the current container runner as the compatibility backend and prove complete plaintext capture for its allowed protocol set.
-10. Add the first web UI view against the same API, then implement gVisor with the same plaintext contract and replace best-effort debug parsing with structured system sensors.

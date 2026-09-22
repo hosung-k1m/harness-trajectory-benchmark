@@ -1,19 +1,19 @@
-# Remaining implementation tasks
+# Delivery status and implementation tasks
 
-This plan starts from the working tree as inspected on 2026-09-21. The delivery
-criteria come from [architecture-handoff.md](architecture-handoff.md), especially
-Section 19, and the current limitations are recorded in [README.md](README.md).
-Each checkbox is an incremental, reviewable change. Complete tasks in order
-within a milestone; keep the CLI and web UI on the same `/v1` API. Run
-`make check` for each code change and add the relevant failure tests before
-claiming a verification capability.
+This file is the single source of truth for delivery status, phase scope,
+implementation tasks, and acceptance gates. The stable system design and
+contracts remain in [architecture-handoff.md](architecture-handoff.md); they do
+not track delivery status. Each checkbox is an incremental, reviewable change.
+Complete tasks in order within a milestone; keep the CLI and web UI on the same
+`/v1` API. Run `make check` for each code change and add the relevant failure
+tests before claiming a verification capability.
 
-**Phase 1 scope decision:** Finish the control-plane and evidence pipeline
-with deterministic mock-data end-to-end tests. Real gVisor implementation and
-runtime provisioning are Phase 2 work. Mock acquisition must remain explicitly
-labelled and must never confer verified-execution eligibility.
+**Completed Phase 1 scope:** The control-plane and evidence pipeline was
+validated with deterministic mock-data end-to-end tests. Real gVisor runtime
+provisioning starts in Phase 2. Mock acquisition remains explicitly labelled
+and never confers verified-execution eligibility.
 
-**Success-criteria rule:** Phase 1 acceptance starts the real control-plane
+**Phase 1 acceptance method:** The gate starts the real control-plane
 binary for local-process lifecycle and restart checks, and a child-process
 control-plane server with a test-only execution driver for mock observations.
 Both use the production `/v1` handlers, durable store, appender, normalizers,
@@ -24,6 +24,24 @@ checked locally with the installed Chrome through DevTools, without adding
 browser dependencies to the project. Later runtime-dependent
 milestones require a supported host; unsupported skips never count as passes.
 Fixtures must not depend on live provider availability or billing.
+
+## Phase status
+
+Status last reviewed: 2026-09-22.
+
+| Phase | Scope | Status | Acceptance authority |
+| --- | --- | --- | --- |
+| Phase 0 | Contracts and deterministic fixtures | **Complete** | Phase 0 acceptance gate and historical audit below |
+| Phase 1 | Durable control plane and mock-data end-to-end acceptance | **Complete** | Milestones 1 and 2 |
+| Phase 2 | Best-effort raw gVisor system and network capture | **Active** | Milestone 3 |
+| Phase 3 | Structured gVisor observation and complete capture profiles | **Planned** | Milestone 4 |
+| Phase 4 | Provider protocols, MCP, and semantic correlation | **Planned** | Milestone 5 |
+| Phase 5 | Public verification and admission policy | **Planned** | Milestone 6 |
+| Phase 6 | Second backend validation | **Planned** | Milestone 7 |
+
+A phase is complete only when every required task is checked and its acceptance
+gate has passed. A later phase may be explored early, but that does not change
+the recorded status of either phase.
 
 ## Implemented baseline
 
@@ -43,7 +61,11 @@ working directory is not a sandbox. It has no filesystem, DNS, boundary-flow,
 or network-plaintext sensor. Neither its manifest signature nor its current
 `ineligible` report establishes a verified run.
 
-## Historical audit before persistence/export and mock-data acceptance
+## Historical audit before persistence/export and mock-data acceptance (2026-09-21)
+
+This audit records the pre-fix state that motivated Milestones 1 and 2. Its
+failed Phase 1 row is historical; the current authoritative status is the phase
+table above and the checked acceptance work below.
 
 | Scope | Result | Evidence and remaining gap |
 | --- | --- | --- |
@@ -62,6 +84,13 @@ mock-data acceptance below is complete; later runtime milestones remain open.
   fixtures against the committed tracked-event, evidence, control API, and
   OpenAI-compatible JSON Schemas in CI. Compare schema results with Go
   validators and resolve any disagreement before marking Phase 0 fully met.
+
+**Phase 0 acceptance gate:** The same golden `tracked-events.jsonl` is accepted
+by the Go conversation replayer, evidence verifier, analysis projection code,
+and committed JSON Schemas. Its plaintext streams reconstruct byte-for-byte;
+all remote LLM events validate against the pinned OpenAI-compatible schema;
+negative fixtures fail for their expected reasons. The historical audit above
+records the passing evidence for this gate.
 
 ## Milestone 1 — Make development runs durable and exportable
 
@@ -86,7 +115,7 @@ mock-data acceptance below is complete; later runtime milestones remain open.
   after a server restart.
   Persistence/API/CLI checks and real-browser inspection, export, and reload checks pass.
 
-**End-to-end success criteria:** Start the server in a fresh data directory;
+**Acceptance gate:** Start the server in a fresh data directory;
 create, start, and complete a local-process run through the CLI; inspect it in
 `/web/`; then stop and restart the server. The same run, status, verification
 report, and gap-free trajectory must be available through CLI, browser, and
@@ -123,7 +152,7 @@ with an explicit recoverable or failed state and no duplicate sequence number.
   restart/idempotency, raw coverage, flow reconciliation, and separate-process
   bundle validation. Browser inspection and downloads are checked locally in Chrome.
 
-**End-to-end success criteria:** On the development host, use a test-only
+**Acceptance gate:** On the development host, use a test-only
 mock driver with the real control-plane HTTP handlers and durable evidence
 pipeline. The CLI and API must agree on the run, gap-free trajectory, and
 verification report, including after restart. Export and validate the signed
@@ -140,30 +169,138 @@ and later, not claims established by these synthetic fixtures.
 
 ## Milestone 3 — gVisor prototype (Phase 2)
 
+**Objective:** Run benchmark workloads inside gVisor and retain a broad,
+tamper-evident dump of the system and network activity visible to the
+configured sensors. Collection is best effort. Missing, truncated, dropped, or
+unsupported observations are recorded in capture health and do not fail the
+workload.
+
+Phase 2 produces a sealed raw capture bundle that can serve as input to later
+normalization, correlation, and verification. It does not require a normalized
+`TrackedEvent` trajectory, global cross-source ordering, semantic reconstruction,
+complete plaintext recovery, fail-closed capture, or verified-run eligibility.
+
+### Phase 2 observation layout
+
+```text
+                         host observation domain
+
+  +------------------------- gVisor sandbox -------------------------+
+  | agent process                                                  |
+  |      +--> Sentry syscalls, processes, files, IPC, and sockets  |
+  |      +--> stdout and stderr                                    |
+  |      +--> Netstack loopback and external network activity      |
+  +-------------|--------------------------------|------------------+
+                |                                |
+       SecCheck remote sink             AF_PACKET / per-run veth
+       and runsc debug logs                       |
+                |                        host packet capture
+                |                        controlled DNS logs
+                |                        optional trusted gateway
+                +---------------+----------------+
+                                |
+                     append-only raw collectors
+                                |
+                  digests and capture health report
+                                |
+                    sealed raw evidence bundle
+```
+
+Sensors and collectors run outside the workload's control domain. Digests and
+source hash chains make retained evidence tamper evident; they do not prove
+that a sensor observed every operation.
+
+### Phase 2 capture requirements
+
+System and runtime capture includes:
+
+- a SecCheck trace session installed during sandbox initialization with the
+  remote protobuf sink and selected process, filesystem, signal, IPC, and
+  socket context fields;
+- `runsc --strace` plus runsc debug, Sentry, Gofer, and runtime logs as
+  best-effort diagnostic sources even when equivalent SecCheck records exist;
+- separate workload stdout and stderr byte streams;
+- periodic cgroup and runtime resource snapshots; and
+- workspace metadata and content snapshots before and after execution.
+
+Disable DirectFS initially when practical so filesystem activity follows the
+Gofer path. This expands the observable surface without claiming complete
+per-read or per-write content capture.
+
+Network capture includes:
+
+- full packet bytes, direction, interface metadata, and capture timestamps on
+  the host side of the per-run veth;
+- network namespace configuration, addresses, routes, firewall rules, and
+  interface counters at start and stop;
+- queries and responses from the controlled DNS resolver when configured;
+- socket and connection activity available from SecCheck or runsc logs; and
+- request, response, and stream bytes available from the optional trusted
+  gateway for supported protocols.
+
+The host veth does not expose gVisor's internal loopback traffic, and packet
+capture does not expose encrypted application plaintext. The capture manifest
+records these limitations. Unsupported encryption, certificate pinning, QUIC,
+custom protocols, proxy bypasses, and capture gaps degrade the record without
+failing a Phase 2 workload.
+
+When enabled, the gateway keeps its private CA key on the host and may inject a
+run-scoped public trust certificate. It preserves the intended destination and
+stores exact captured bytes as protected raw evidence. Redaction applies only
+to derived exports or views, never to authoritative bytes used for evidence
+digests.
+
+### Phase 2 evidence and failure semantics
+
+Every collector preserves exact source records before interpretation and adds
+collector-owned run ID, sensor ID, boot ID, per-source receipt sequence,
+available monotonic and wall-clock times, encoding, payload, previous digest,
+and current digest. Receipt sequence orders one source only and is never
+presented as a global execution order.
+
+The capture manifest records gVisor and collector versions and executable
+digests, OCI configuration, effective runsc flags, enabled SecCheck points,
+network and gateway configuration, source start and stop state, record and byte
+counts, chain heads, file digests, drops, retries, disconnects, parse errors,
+truncation, drain state, and available clock information. Existing evidence
+signing may sign the manifest after collection drains. A valid signature proves
+integrity of retained evidence, not completeness of observation.
+
+Collector failure creates health evidence and a degraded capture status. The
+workload continues unless execution itself can no longer proceed. Teardown
+drains available collectors, records incomplete drains, seals received
+evidence, and removes run-scoped resources.
+
 - [ ] **P2.1** Implement gVisor lifecycle with per-run cgroup, network
   namespace, veth pair, filesystem scope, and artifact scope.
-- [ ] **P2.2** Ingest `runsc --strace` and runtime logs as best-effort raw system
-  evidence, plus Netstack, host-veth, and backend-specific plaintext evidence.
-  Reuse the shared appender, normalizers, verifier, and manifest format.
-- [ ] **P2.3** Run the same benchmark under the local-process compatibility
-  baseline and the gVisor backend, and compare both against the mock-data
-  contract fixtures; document expected capability differences and keep
-  debug-log-derived coverage marked best effort.
+- [ ] **P2.2** Capture `runsc --strace`, runtime logs, SecCheck protobuf frames,
+  stdout, stderr, resource snapshots, and before-and-after filesystem evidence
+  as separate best-effort raw sources.
+- [ ] **P2.3** Capture full packets on the host side of the per-run veth along
+  with network configuration, counters, controlled DNS logs, and optional
+  trusted-gateway output for supported protocols.
+- [ ] **P2.4** Seal exact raw source bytes using per-source receipt sequences,
+  hash chains, artifact digests, a capture manifest, and explicit health
+  metadata. Sensor loss degrades the capture but does not fail the workload.
+- [ ] **P2.5** Run the same deterministic workload under the local-process
+  compatibility baseline and gVisor; compare workload results and artifacts,
+  and document the capture surfaces and known gaps.
 
-**End-to-end success criteria:** Run the deterministic workload on gVisor
-through the public API. Compare its logical workload/model events and expected
-artifacts against the mock-data contract fixtures, and compare
-process/stdout/stderr behavior with the local-process compatibility baseline.
-The gVisor bundle must replay and reconstruct captured plaintext byte-for-byte,
-while its report marks debug-log system observation as best effort. Stopping
-the gVisor run must release its cgroup, namespace, veth, and filesystem scope
-while retaining sealed evidence. Do not infer real network-capture parity from
-the local-process baseline.
+**Acceptance gate:** Run the deterministic workload on gVisor through the
+public API. Retain stdout, stderr, runsc and available SecCheck records,
+host-veth packets, network configuration, available DNS and gateway logs,
+filesystem snapshots, and capture health in a tamper-evident raw bundle.
+Changing a retained artifact must invalidate its digest or signature. Missing,
+dropped, truncated, or unsupported observations remain visible as degraded
+health and do not fail the workload. Stopping the gVisor run must release its
+cgroup, namespace, veth, and filesystem scope while retaining sealed evidence.
+Phase 2 does not produce or require a normalized `TrackedEvent` trajectory.
 
 ## Milestone 4 — Structured gVisor observation (Phase 3)
 
-- [ ] **P3.1** Replace debug-text parsing with structured Sentry records and
-  stable process, file, pipe, socket, and flow identities.
+- [ ] **P3.1** Normalize the raw SecCheck stream into structured Sentry records
+  with stable process, file, pipe, socket, and flow identities; retain debug
+  text as corroborating best-effort evidence.
 - [ ] **P3.2** Instrument Netstack DNS, loopback, connections, packets, and byte
   counters. Transport records over a protected collector channel with explicit
   sequence, backpressure, drop, and shutdown accounting.
@@ -172,7 +309,7 @@ the local-process baseline.
   hooks. Prove the required event families are complete before upgrading the
   gVisor capability profile.
 
-**End-to-end success criteria:** Exercise process creation, file access, DNS,
+**Acceptance gate:** Exercise process creation, file access, DNS,
 loopback, allowed external connections, and blocked connections inside gVisor.
 The exported bundle must link each resulting event to structured raw evidence
 with stable identities and complete source ranges. For every allowed protocol,
@@ -195,7 +332,7 @@ verified profile's required event-family coverage.
   provenance without changing source facts. Add per-actor, provider, model,
   call, and tool projections and navigation through `/v1` for CLI and web.
 
-**End-to-end success criteria:** Run a harness that makes streaming calls to
+**Acceptance gate:** Run a harness that makes streaming calls to
 each supported provider fixture, invokes both stdio and HTTP MCP tools, and
 causes process, file, and network effects. Starting from a tool call in the
 CLI and browser, an analyst must be able to follow correlation links to the
@@ -220,7 +357,7 @@ carry a weaker correlation label rather than a fabricated causal link.
   pinning, QUIC/custom encryption, missing TLS keys, stream gaps, sensor
   termination, buffer overflow, clock skew, and collector interruption.
 
-**End-to-end success criteria:** Produce a clean verified-profile run, export
+**Acceptance gate:** Produce a clean verified-profile run, export
 its bundle, and have the standalone verifier check it in a fresh process using
 the configured public trust root. The resulting report must admit the run and
 the result/leaderboard API must show its verified tier. For each adversarial
@@ -240,7 +377,7 @@ the same decision and evidence hashes.
   representation, bundle format, and standalone verification workflow while
   preserving backend-specific acquisition and capability differences.
 
-**End-to-end success criteria:** Run the same provider-and-tool workload on
+**Acceptance gate:** Run the same provider-and-tool workload on
 both backends through the CLI, export both bundles, and verify them with the
 same standalone verifier and trust policy. Their logical event families,
 provider projections, artifacts, and reconstructed plaintext bytes must match
