@@ -27,6 +27,44 @@ go run ./cmd/benchmark --help
 
 `make test-e2e` builds the real CLI and control-plane binaries and runs the opt-in mock-data and restart subprocess gates. Regular `make check` does not run these opt-in tests. Fixtures and exported bundles are retained under ignored `dist/e2e/`. Browser behavior is outside this Make target; its acceptance status is recorded in `tasks.md`.
 
+## Milestone 3 local gVisor runtime
+
+Milestone 3 uses a Lima VM as the trusted runtime and observation host. Docker,
+`runsc`, SecCheck collectors, runtime logs, and later packet collectors run in
+the VM; the Codex CLI runs as a non-root process inside a gVisor sandbox. This
+is deliberately not Docker-in-Docker: the VM can directly observe each run's
+cgroup, network namespace, and host-side veth.
+
+Provision the existing arm64 `gvisor-dev` Lima instance and build the workload
+image from macOS:
+
+```sh
+limactl shell gvisor-dev sudo bash "$(pwd)/deploy/gvisor/scripts/provision-lima.sh"
+limactl shell gvisor-dev bash "$(pwd)/deploy/gvisor/scripts/build-agent-image.sh"
+```
+
+The provisioner checksum-verifies the pinned gVisor artifact, registers the
+`runsc-benchmark` Docker runtime, disables DirectFS for the initial
+observation-focused prototype, and installs a SecCheck session before the
+workload starts. The agent image is `linux/arm64`, runs as the `codex` user,
+and contains no credentials, Docker socket, workspace, or collector paths.
+Credentials must be supplied only at run time by the harness.
+
+Verify the runtime and the Codex image under gVisor:
+
+```sh
+limactl shell gvisor-dev sudo bash "$(pwd)/deploy/gvisor/scripts/validate-trace-profile.sh"
+limactl shell gvisor-dev sudo bash "$(pwd)/deploy/gvisor/scripts/smoke-system-observation.sh"
+limactl shell gvisor-dev sudo bash "$(pwd)/deploy/gvisor/scripts/smoke-system-observation.sh" --agent
+```
+
+The smoke tests require received SecCheck frames and runsc logs. They establish
+the runtime prerequisite only: the current control plane does not yet launch a
+gVisor backend. Milestone 3 still needs its persistent raw collector, per-run
+cgroup/veth lifecycle, packet and DNS/gateway capture, source health accounting,
+and evidence sealing. See [`deploy/gvisor/README.md`](deploy/gvisor/README.md)
+for the complete setup, collector boundary, and implementation contract.
+
 ## Local development run
 
 Start the API and web status view:

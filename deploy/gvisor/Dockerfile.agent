@@ -1,0 +1,26 @@
+# syntax=docker/dockerfile:1
+# Build context: deploy/gvisor
+ARG AGENT_NODE_IMAGE
+FROM ${AGENT_NODE_IMAGE}
+
+ARG CODEX_VERSION
+
+RUN groupadd --gid 10001 codex \
+    && useradd --uid 10001 --gid codex --create-home --shell /bin/sh codex \
+    && mkdir --mode=0700 /var/lib/codex /workspace \
+    && chown codex:codex /var/lib/codex /workspace \
+    && npm install --global --no-audit --no-fund "@openai/codex@${CODEX_VERSION}" \
+    && codex --version
+
+COPY agent-entrypoint.sh /usr/local/bin/agent-entrypoint
+RUN chmod 0555 /usr/local/bin/agent-entrypoint
+
+ENV HOME=/home/codex \
+    CODEX_HOME=/var/lib/codex
+WORKDIR /workspace
+USER codex:codex
+
+# The harness supplies the exact codex exec invocation. The image deliberately
+# contains no credentials, workspace, Docker socket, or privileged helper.
+ENTRYPOINT ["/usr/local/bin/agent-entrypoint"]
+CMD ["codex", "--help"]

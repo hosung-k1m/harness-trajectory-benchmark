@@ -1,0 +1,57 @@
+{
+  "trace_session": {
+    "name": "Default",
+    "ignore_missing": false,
+    "points": [
+      {
+        "name": "container/start",
+        "context_fields": ["time", "container_id"]
+      },
+      {
+        "name": "sentry/clone",
+        "context_fields": ["time", "container_id", "group_id", "process_name"]
+      },
+      {
+        "name": "sentry/task_exit",
+        "context_fields": ["time", "container_id", "group_id", "process_name"]
+      },
+      {
+        "name": "syscall/execve/enter",
+        "context_fields": ["time", "container_id", "group_id", "process_name", "cwd"]
+      },
+      {
+        "name": "syscall/execve/exit",
+        "context_fields": ["time", "container_id", "group_id", "process_name"]
+      },
+      {
+        "name": "syscall/openat/enter",
+        "optional_fields": ["fd_path"],
+        "context_fields": ["time", "container_id", "group_id", "process_name", "cwd"]
+      },
+      {
+        "name": "syscall/openat/exit",
+        "context_fields": ["time", "container_id", "group_id", "process_name"]
+      },
+      {
+        "name": "syscall/socket/enter",
+        "context_fields": ["time", "container_id", "group_id", "process_name"]
+      },
+      {
+        "name": "syscall/connect/enter",
+        "context_fields": ["time", "container_id", "group_id", "process_name"]
+      },
+      {
+        "name": "syscall/connect/exit",
+        "context_fields": ["time", "container_id", "group_id", "process_name"]
+      }
+    ],
+    "sinks": [
+      {
+        "name": "remote",
+        "config": {
+          "endpoint": "/run/benchmark-gvisor/seccheck.sock"
+        }
+      }
+    ]
+  }
+}
