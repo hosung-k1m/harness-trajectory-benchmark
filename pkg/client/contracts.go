@@ -30,6 +30,19 @@ type Run struct {
 	CreatedAt time.Time `json:"createdAt"`
 	UpdatedAt time.Time `json:"updatedAt"`
 }
+type EvidenceReport struct {
+	RunID        string              `json:"runId"`
+	Status       string              `json:"status"`
+	Verification *VerificationResult `json:"verification,omitempty"`
+}
+type VerificationResult struct {
+	Status                string    `json:"status"`
+	Eligible              bool      `json:"eligible"`
+	Summary               string    `json:"summary,omitempty"`
+	CheckedAt             time.Time `json:"checkedAt,omitempty"`
+	TrackedEventChainHead string    `json:"trackedEventChainHead,omitempty"`
+	EventCount            uint64    `json:"eventCount,omitempty"`
+}
 type Page[T any] struct {
 	Items      []T    `json:"items"`
 	NextCursor string `json:"nextCursor,omitempty"`

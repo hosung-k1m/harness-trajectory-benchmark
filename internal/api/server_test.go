@@ -2,10 +2,13 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -130,5 +133,174 @@ func TestDecodeRejectsTrailingNonWhitespace(t *testing.T) {
 	err := decode(httptest.NewRequest(http.MethodPost, "/", bytes.NewBufferString(`{} {}`)), &map[string]any{})
 	if err == nil || err == io.EOF {
 		t.Fatal("expected trailing document error")
+	}
+}
+
+func TestTrajectoryEvidenceAndWebSurface(t *testing.T) {
+	store := NewStore()
+	run, err := store.create(CreateRunRequest{Spec: RunSpec{SchemaVersion: "v1", Harness: "h", Suite: "s", Backend: "b"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := store.AppendEvent(run.ID, Event{Type: "run/start", Data: json.RawMessage(`{}`), Ignorable: true})
+	if err != nil || first.Seq != 1 {
+		t.Fatalf("append = %#v, %v", first, err)
+	}
+	if _, err := store.AppendEvent(run.ID, Event{Seq: 2, Type: "run/start", Data: json.RawMessage(`{}`), Ignorable: true}); err == nil {
+		t.Fatal("expected caller-supplied sequence rejection")
+	}
+	if err := store.SetEvidenceVerification(run.ID, VerificationResult{Status: "ineligible", Summary: "no evidence backend"}); err != nil {
+		t.Fatal(err)
+	}
+	h := NewHandler(store)
+	for _, tc := range []struct {
+		path        string
+		contentType string
+		contains    string
+	}{
+		{"/v1/runs/" + run.ID + "/trajectory?limit=1", "application/json", `"seq":1`},
+		{"/v1/runs/" + run.ID + "/trajectory/export", "application/x-ndjson", `"seq":1`},
+		{"/v1/runs/" + run.ID + "/evidence", "application/json", `"status":"verification_recorded"`},
+		{"/web/", "text/html", "/v1/runs"},
+	} {
+		t.Run(tc.path, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, tc.path, nil))
+			if w.Code != http.StatusOK || !strings.Contains(w.Header().Get("Content-Type"), tc.contentType) || !strings.Contains(w.Body.String(), tc.contains) {
+				t.Fatalf("status=%d type=%q body=%q", w.Code, w.Header().Get("Content-Type"), w.Body.String())
+			}
+		})
+	}
+}
+
+type memoryEventLog struct{ events []Event }
+
+func (l *memoryEventLog) Append(event Event) (Event, error) {
+	event.Seq = uint64(len(l.events) + 1)
+	event.Time = 1
+	l.events = append(l.events, event)
+	return event, nil
+}
+func (l *memoryEventLog) Snapshot() []Event { return append([]Event(nil), l.events...) }
+
+func TestStoreCanDelegateToDurableAppenderBoundary(t *testing.T) {
+	log := &memoryEventLog{}
+	store := NewStoreWithEventLogFactory(func(run Run) (EventLog, error) {
+		if run.ID == "" {
+			t.Fatal("run ID was not assigned before log creation")
+		}
+		return log, nil
+	})
+	run, err := store.create(CreateRunRequest{Spec: RunSpec{SchemaVersion: "v1", Harness: "h", Suite: "s", Backend: "b"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.AppendEvent(run.ID, Event{Type: "run/start", Data: json.RawMessage(`{}`), Ignorable: true}); err != nil {
+		t.Fatal(err)
+	}
+	got, ok := store.Events(run.ID)
+	if !ok || len(got) != 1 || got[0].Seq != 1 || len(log.events) != 1 {
+		t.Fatalf("store events=%#v log=%#v", got, log.events)
+	}
+}
+
+type fakeRunDriver struct {
+	calls                []string
+	prepareErr, startErr error
+	stopErr              error
+	observedCanceledCtx  bool
+}
+
+func (d *fakeRunDriver) Prepare(ctx context.Context, run Run) error {
+	d.calls = append(d.calls, "prepare:"+run.ID)
+	d.observedCanceledCtx = d.observedCanceledCtx || ctx.Err() != nil
+	if d.prepareErr != nil {
+		return d.prepareErr
+	}
+	return ctx.Err()
+}
+func (d *fakeRunDriver) Start(ctx context.Context, id string) error {
+	d.calls = append(d.calls, "start:"+id)
+	d.observedCanceledCtx = d.observedCanceledCtx || ctx.Err() != nil
+	if d.startErr != nil {
+		return d.startErr
+	}
+	return ctx.Err()
+}
+func (d *fakeRunDriver) Stop(ctx context.Context, id, reason string) error {
+	d.calls = append(d.calls, "stop:"+id+":"+reason)
+	d.observedCanceledCtx = d.observedCanceledCtx || ctx.Err() != nil
+	if d.stopErr != nil {
+		return d.stopErr
+	}
+	return ctx.Err()
+}
+
+func TestRunDriverLifecycleOrderAndFailureStatePreservation(t *testing.T) {
+	driver := &fakeRunDriver{}
+	store := NewStoreWithRunDriver(driver)
+	run, err := store.create(CreateRunRequest{Spec: RunSpec{SchemaVersion: "v1", Harness: "h", Suite: "s", Backend: "b"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.mutate(run.ID, LifecycleMutation{Action: "start"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.mutate(run.ID, LifecycleMutation{Action: "stop", Reason: "requested"}); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := strings.Join(driver.calls, ","), "prepare:"+run.ID+",start:"+run.ID+",stop:"+run.ID+":requested"; got != want {
+		t.Fatalf("calls=%q want %q", got, want)
+	}
+
+	for _, tc := range []struct {
+		name   string
+		setup  func(*fakeRunDriver)
+		action string
+		status string
+	}{
+		{"start", func(d *fakeRunDriver) { d.startErr = errors.New("start failed") }, "start", "created"},
+		{"stop", func(d *fakeRunDriver) { d.stopErr = errors.New("stop failed") }, "stop", "running"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			d := &fakeRunDriver{}
+			s := NewStoreWithRunDriver(d)
+			r, err := s.create(CreateRunRequest{Spec: RunSpec{SchemaVersion: "v1", Harness: "h", Suite: "s", Backend: "b"}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tc.action == "stop" {
+				if _, err := s.mutate(r.ID, LifecycleMutation{Action: "start"}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			tc.setup(d)
+			if _, err := s.mutate(r.ID, LifecycleMutation{Action: tc.action}); err == nil {
+				t.Fatal("expected driver error")
+			} else if apiErr, ok := err.(*APIError); !ok || apiErr.Code != "execution" {
+				t.Fatalf("error=%v", err)
+			}
+			got, _ := s.get(r.ID)
+			if got.Status != tc.status {
+				t.Fatalf("status=%q want %q", got.Status, tc.status)
+			}
+		})
+	}
+}
+
+func TestRunDriverUsesHTTPRequestContextAndPreservesCreateFailure(t *testing.T) {
+	driver := &fakeRunDriver{}
+	store := NewStoreWithRunDriver(driver)
+	h := NewHandler(store)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	req := httptest.NewRequest(http.MethodPost, "/v1/runs", bytes.NewBufferString(`{"spec":{"schemaVersion":"v1","harness":"h","suite":"s","backend":"b"}}`)).WithContext(ctx)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != http.StatusInternalServerError || !strings.Contains(w.Body.String(), `"code":"execution"`) {
+		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
+	}
+	if !driver.observedCanceledCtx || len(store.list()) != 0 {
+		t.Fatalf("driver cancellation=%t runs=%#v", driver.observedCanceledCtx, store.list())
 	}
 }

@@ -260,6 +260,7 @@ type RunEvidenceManifest struct {
 	Artifacts                []ArtifactDigest  `json:"artifacts"`
 	MerkleRoot               string            `json:"merkleRoot"`
 	Signature                string            `json:"signature,omitempty"`
+	SignatureFormat          string            `json:"signatureFormat,omitempty"`
 	SealedAt                 time.Time         `json:"sealedAt"`
 }
 

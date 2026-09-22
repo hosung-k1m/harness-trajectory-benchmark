@@ -971,18 +971,19 @@ Use one Go module initially. Keep backend implementations under `internal` and e
 
 Exit criterion: the same golden `tracked-events.jsonl` is accepted by the Go conversation replayer, evidence verifier, and analysis projection code; its plaintext streams reconstruct byte-for-byte; and all remote LLM events validate against the pinned OpenAI-compatible schema.
 
-### Phase 1: appender and compatibility backend
+### Phase 1: appender and mock-data end-to-end acceptance
 
 - Implement a vertical slice through the shared API, agent-native CLI, and minimal web run-status view so both surfaces exercise the same control-plane path from the start.
-- Implement the durable single-writer TrackedEvent appender.
-- Wrap the current container runner behind `ExecutionBackend`.
-- Capture stdout, stderr, container-runtime logs, process events, filesystem events, DNS, veth packet and flow metadata, plaintext ingress and egress, and sensor health.
-- Observe provider traffic at its original remote destination and capture the native plaintext without endpoint substitution.
-- Normalize every remote provider call to `openai.chat-completions.v1` while preserving its original provider-native plaintext exchange.
-- Normalize all observations into the new TrackedEvent types.
-- Produce unsigned local evidence manifests first, then add a development signing key.
+- Implement the durable single-writer TrackedEvent appender, restart recovery, and persisted lifecycle idempotency.
+- Keep the local-process compatibility backend for trusted development workloads; it is not an isolation boundary.
+- Use a test-only execution driver and deterministic mock system, DNS, boundary-flow, plaintext, provider, and health records to exercise the real observation and evidence pipeline.
+- Preserve mock provider-native bytes and endpoint identity, and normalize provider records to `openai.chat-completions.v1` without inventing missing usage.
+- Normalize observations into TrackedEvent candidates; only the trusted appender assigns global sequence numbers.
+- Export portable evidence bundles with independently chained raw sources, sealed trajectories, artifact digests, and development-key COSE Sign1 signatures.
 
-Exit criterion: a run can be created, followed, inspected, and verified through both the CLI and web UI using the same API; every raw source sequence is represented by an event or explicit batch; every boundary flow reconciles to plaintext in both directions; every remote LLM call has a valid OpenAI-compatible projection; and a deliberately dropped plaintext chunk invalidates verification.
+Exit criterion: a mock-data run can be created, followed, inspected, and integrity-checked through the CLI and web UI using the same API; its catalog, trajectory, evidence, and idempotency results survive restart; every raw source sequence is represented by an event or explicit batch; every mock boundary flow reconciles to plaintext in both directions; every mock LLM call has a valid OpenAI-compatible projection; and a deliberately dropped plaintext chunk invalidates verification. Exported evidence must validate in a separate process and reject byte tampering. Browser behavior is checked manually unless browser automation is explicitly enabled.
+
+Mock and local-process runs remain ineligible for verified execution. These tests prove the control-plane and evidence contracts, not isolation, real TLS interception, destination-preserving acquisition, or independent host sensor completeness. Real gVisor execution and capture belong to Phase 2.
 
 ### Phase 2: gVisor prototype
 
@@ -991,7 +992,7 @@ Exit criterion: a run can be created, followed, inspected, and verified through 
 - Start with `runsc --strace` plus runtime logs for best-effort system telemetry.
 - Add Netstack and host-veth network evidence plus a backend-specific plaintext acquisition path.
 - Use the shared plaintext contract, protocol observers, LLM normalizer, appender, verifier, and manifests.
-- Compare a benchmark run against the compatibility container backend for trajectory and artifact parity.
+- Compare a benchmark run against the local-process compatibility baseline and mock-data contract fixtures for trajectory and artifact parity.
 
 Exit criterion: a full run produces one replayable TrackedEvent log, reconstructable plaintext for every boundary connection, and an evidence report that honestly marks debug-log-derived system coverage as best effort.
 

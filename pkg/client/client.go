@@ -86,6 +86,32 @@ func (c *Client) Events(ctx context.Context, id string) ([]events.TrackedEvent, 
 	}
 	return out, nil
 }
+
+// Trajectory returns one paginated JSON view of the canonical event log.
+func (c *Client) Trajectory(ctx context.Context, id, cursor string, limit int) (Page[events.TrackedEvent], error) {
+	var out Page[events.TrackedEvent]
+	if limit <= 0 {
+		limit = 100
+	}
+	path := "/v1/runs/" + url.PathEscape(id) + "/trajectory?cursor=" + url.QueryEscape(cursor) + fmt.Sprintf("&limit=%d", limit)
+	return out, c.do(ctx, http.MethodGet, path, nil, "", &out)
+}
+
+// ExportTrajectory returns the exact JSONL representation published by the
+// control plane; callers can persist it without re-marshalling events.
+func (c *Client) ExportTrajectory(ctx context.Context, id string) ([]byte, error) {
+	return c.download(ctx, "/v1/runs/"+url.PathEscape(id)+"/trajectory/export", "application/x-ndjson")
+}
+
+func (c *Client) Evidence(ctx context.Context, id string) (EvidenceReport, error) {
+	var out EvidenceReport
+	return out, c.do(ctx, http.MethodGet, "/v1/runs/"+url.PathEscape(id)+"/evidence", nil, "", &out)
+}
+
+// ExportEvidence downloads the exact published evidence bundle bytes.
+func (c *Client) ExportEvidence(ctx context.Context, id string) ([]byte, error) {
+	return c.download(ctx, "/v1/runs/"+url.PathEscape(id)+"/evidence/export", "application/json")
+}
 func (c *Client) do(ctx context.Context, method, path string, input any, key string, out any) error {
 	var body io.Reader
 	if input != nil {
@@ -121,6 +147,22 @@ func (c *Client) http() *http.Client {
 		return c.HTTPClient
 	}
 	return http.DefaultClient
+}
+func (c *Client) download(ctx context.Context, path, accept string) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.BaseURL+path, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Accept", accept)
+	res, err := c.http().Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer res.Body.Close()
+	if res.StatusCode/100 != 2 {
+		return nil, readError(res)
+	}
+	return io.ReadAll(res.Body)
 }
 func readError(res *http.Response) error {
 	var body struct {

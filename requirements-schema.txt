@@ -1,0 +1,2 @@
+# Independent Draft 2020-12 validator used only by the Phase 0 fixture check.
+jsonschema==4.23.0

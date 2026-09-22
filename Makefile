@@ -1,4 +1,4 @@
-.PHONY: all fmt fmt-check vet test test-race check build
+.PHONY: all fmt fmt-check vet test test-race test-e2e schema-check check build
 
 all: check
 
@@ -18,7 +18,16 @@ test:
 test-race:
 	go test -race ./...
 
-check: fmt-check vet test-race
+test-e2e:
+	mkdir -p dist/e2e
+	go build -o dist/e2e/benchmark ./cmd/benchmark
+	go build -o dist/e2e/controlplane ./cmd/controlplane
+	HTB_E2E=1 go test -race -count=1 ./internal/controlplane -run '^TestPhase1'
+
+schema-check:
+	python3 scripts/schema_check.py
+
+check: fmt-check vet test-race schema-check
 
 build:
 	go build ./...

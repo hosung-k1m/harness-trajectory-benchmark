@@ -1,12 +1,21 @@
 {
-  "$schema":"https://json-schema.org/draft/2020-12/schema",
-  "$id":"https://harness-trajectory-benchmark.dev/schemas/control-api/v1.json",
-  "title":"Benchmark Control Plane API v1",
-  "type":"object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://harness-trajectory-benchmark.dev/schemas/control-api/v1.json",
+  "title": "Benchmark Control Plane API v1",
+  "type": "object",
   "$defs": {
-    "runSpec":{"type":"object","required":["schemaVersion","harness","suite","backend"],"additionalProperties":false,"properties":{"schemaVersion":{"const":"v1"},"harness":{"type":"string","minLength":1},"suite":{"type":"string","minLength":1},"backend":{"type":"string","minLength":1},"parameters":{"type":"object"},"verified":{"type":"boolean"}}},
-    "createRunRequest":{"type":"object","required":["spec"],"additionalProperties":false,"properties":{"spec":{"$ref":"#/$defs/runSpec"},"idempotencyKey":{"type":"string","minLength":1}}},
-    "lifecycleMutation":{"type":"object","required":["action"],"additionalProperties":false,"properties":{"action":{"enum":["start","stop"]},"idempotencyKey":{"type":"string","minLength":1},"reason":{"type":"string"}}}
+    "runSpec": {"type": "object", "required": ["schemaVersion", "harness", "suite", "backend"], "additionalProperties": false, "properties": {"schemaVersion": {"const": "v1"}, "harness": {"type": "string", "minLength": 1}, "suite": {"type": "string", "minLength": 1}, "backend": {"type": "string", "minLength": 1}, "parameters": {"type": "object"}, "verified": {"type": "boolean"}}},
+    "createRunRequest": {"type": "object", "required": ["spec"], "additionalProperties": false, "properties": {"spec": {"$ref": "#/$defs/runSpec"}, "idempotencyKey": {"type": "string", "minLength": 1}}},
+    "lifecycleMutation": {"type": "object", "required": ["action"], "additionalProperties": false, "properties": {"action": {"enum": ["start", "stop"]}, "idempotencyKey": {"type": "string", "minLength": 1}, "reason": {"type": "string"}}},
+    "run": {"type": "object", "required": ["id", "spec", "status", "createdAt", "updatedAt"], "additionalProperties": false, "properties": {"id": {"type": "string", "pattern": "^[a-z0-9-]+$"}, "spec": {"$ref": "#/$defs/runSpec"}, "status": {"enum": ["created", "running", "stopping", "stopped", "completed", "failed"]}, "createdAt": {"type": "string", "format": "date-time"}, "updatedAt": {"type": "string", "format": "date-time"}}},
+    "trackedEvent": {"type": "object", "required": ["seq", "time", "type", "data"], "additionalProperties": false, "properties": {"seq": {"type": "integer", "minimum": 1}, "time": {"type": "integer", "minimum": 0, "description": "Unix epoch milliseconds assigned by the trusted appender"}, "type": {"type": "string", "minLength": 1}, "data": {"type": "object"}, "ignorable": {"type": "boolean"}, "sourceEventSeqs": {"type": "array", "items": {"type": "integer", "minimum": 1}, "uniqueItems": true}, "surfaceOp": {}}},
+    "verificationResult": {"type": "object", "required": ["status", "eligible"], "additionalProperties": false, "properties": {"status": {"type": "string", "minLength": 1}, "eligible": {"type": "boolean"}, "summary": {"type": "string"}, "checkedAt": {"type": "string", "format": "date-time"}, "trackedEventChainHead": {"type": "string", "pattern": "^[0-9a-f]{64}$"}, "eventCount": {"type": "integer", "minimum": 1}}},
+    "evidenceReport": {"type": "object", "required": ["runId", "status"], "additionalProperties": false, "properties": {"runId": {"type": "string"}, "status": {"type": "string", "minLength": 1}, "verification": {"$ref": "#/$defs/verificationResult"}}},
+    "capabilityManifest": {"type": "object", "required": ["backend", "version", "schemaVersion", "capabilities"], "additionalProperties": false, "properties": {"backend": {"type": "string"}, "version": {"type": "string"}, "schemaVersion": {"type": "string"}, "capabilities": {"type": "array", "items": {"type": "string"}}}},
+    "compatibility": {"type": "object", "required": ["apiVersions", "schemas", "streamingFormats"], "additionalProperties": false, "properties": {"apiVersions": {"type": "array", "items": {"type": "string"}}, "schemas": {"type": "array", "items": {"type": "string"}}, "cliVersion": {"type": "string"}, "streamingFormats": {"type": "array", "items": {"type": "string"}}}},
+    "apiError": {"type": "object", "required": ["code", "message"], "additionalProperties": false, "properties": {"code": {"type": "string"}, "message": {"type": "string"}}},
+    "runPage": {"type": "object", "required": ["items"], "additionalProperties": false, "properties": {"items": {"type": "array", "items": {"$ref": "#/$defs/run"}}, "nextCursor": {"type": "string"}}},
+    "trajectoryPage": {"type": "object", "required": ["items"], "additionalProperties": false, "properties": {"items": {"type": "array", "items": {"$ref": "#/$defs/trackedEvent"}}, "nextCursor": {"type": "string"}}}
   },
-  "description":"POST /v1/runs accepts createRunRequest. POST /v1/runs/{id}/lifecycle accepts lifecycleMutation. GET /v1/runs/{id}/events returns NDJSON or SSE. List endpoints use opaque cursor and limit. GET /v1/compatibility negotiates API and schemas."
+  "description": "The CLI and web UI use only these versioned endpoints: POST/GET /v1/runs; GET /v1/runs/{id}; POST /v1/runs/{id}/lifecycle; GET /v1/runs/{id}/events (NDJSON or SSE), /trajectory, /trajectory/export, /evidence, and /evidence/export; GET /v1/backends, /v1/compatibility, and /v1/schemas. List and trajectory pages use opaque cursor and limit query parameters. The event stream is the canonical TrackedEvent log, not an API-specific event format."
 }

@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/hosung-k1m/harness-trajectory-benchmark/schemas/evidence/bundle.v1.schema.json",
+  "title": "Evidence bundle v1",
+  "type": "object",
+  "required": ["schemaVersion", "runId", "manifest", "files"],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": {"const": "htb.evidence-bundle.v1"},
+    "runId": {"type": "string", "minLength": 1},
+    "manifest": {"type": "object"},
+    "files": {"type": "object", "additionalProperties": {"type": "string", "contentEncoding": "base64"}}
+  }
+}

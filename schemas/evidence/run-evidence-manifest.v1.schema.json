@@ -16,6 +16,7 @@
     "artifacts": {"type":"array", "items":{"type":"object", "required":["path","sha256","size"], "properties":{"path":{"type":"string","minLength":1},"sha256":{"$ref":"#/$defs/sha256"},"size":{"type":"integer","minimum":0}}}},
     "merkleRoot": {"$ref":"#/$defs/sha256"},
     "signature": {"type":"string"},
+    "signatureFormat": {"enum":["cose-sign1-ed25519"]},
     "sealedAt": {"type":"string", "format":"date-time"}
   },
   "$defs": {"sha256":{"type":"string","pattern":"^[0-9a-f]{64}$"}}

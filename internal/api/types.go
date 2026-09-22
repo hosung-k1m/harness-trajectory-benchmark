@@ -39,6 +39,26 @@ type Run struct {
 	UpdatedAt time.Time `json:"updatedAt"`
 }
 
+// EvidenceReport describes the evidence state currently known to the control
+// plane. It deliberately does not infer evidence or verification from a run's
+// lifecycle state.
+type EvidenceReport struct {
+	RunID        string              `json:"runId"`
+	Status       string              `json:"status"`
+	Verification *VerificationResult `json:"verification,omitempty"`
+}
+
+// VerificationResult is a recorded verifier outcome. A nil result means that
+// no verifier outcome has been supplied by an evidence/verifier integration.
+type VerificationResult struct {
+	Status                string    `json:"status"`
+	Eligible              bool      `json:"eligible"`
+	Summary               string    `json:"summary,omitempty"`
+	CheckedAt             time.Time `json:"checkedAt,omitempty"`
+	TrackedEventChainHead string    `json:"trackedEventChainHead,omitempty"`
+	EventCount            uint64    `json:"eventCount,omitempty"`
+}
+
 // Event is the canonical append-only trajectory envelope, never a parallel API format.
 type Event = events.TrackedEvent
 

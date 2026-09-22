@@ -1,9 +1,11 @@
 package verification
 
 import (
+	"encoding/json"
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/hosung-k1m/harness-trajectory-benchmark/internal/eventlog"
 	"github.com/hosung-k1m/harness-trajectory-benchmark/internal/evidence"
@@ -12,7 +14,86 @@ import (
 	"github.com/hosung-k1m/harness-trajectory-benchmark/internal/projection"
 	"github.com/hosung-k1m/harness-trajectory-benchmark/internal/replay"
 	"github.com/hosung-k1m/harness-trajectory-benchmark/pkg/backend"
+	"github.com/hosung-k1m/harness-trajectory-benchmark/pkg/events"
 )
+
+// These cases mirror the tracked-event mutations in scripts/schema_check.py.
+// The independent schema check and the Go validator must agree on the corpus.
+func TestPhase0TrackedEventSchemaParity(t *testing.T) {
+	file, err := os.Open("../../testdata/golden/tracked-events.v1.jsonl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer file.Close()
+	log, err := eventlog.DecodeJSONL(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, event := range log {
+		if err := events.ValidateEvent(event); err != nil {
+			t.Fatalf("golden event %d: %v", event.Seq, err)
+		}
+	}
+	tests := []struct {
+		name   string
+		mutate func(*events.TrackedEvent)
+	}{
+		{"zero sequence", func(e *events.TrackedEvent) { e.Seq = 0 }},
+		{"empty type", func(e *events.TrackedEvent) { e.Type = "" }},
+		{"null data", func(e *events.TrackedEvent) { e.Data = json.RawMessage("null") }},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			event := log[0]
+			tc.mutate(&event)
+			if err := events.ValidateEvent(event); err == nil {
+				t.Fatal("Go validator accepted a schema-negative event")
+			}
+		})
+	}
+}
+
+func TestPhase0EvidenceSchemaParity(t *testing.T) {
+	record := evidence.RawRecord{
+		RunID: "run", SensorID: "sensor", BootID: "boot", SourceSeq: 1,
+		RecordType: "test", Encoding: "binary", Payload: []byte("payload"),
+		RecordSHA256: "0431ce86610432c4bcf96f2a4f3b53f5e2378771cf138a6281922727b8e2975b",
+	}
+	if err := record.Validate(); err != nil {
+		t.Fatalf("schema-positive raw record: %v", err)
+	}
+	for _, tc := range []struct {
+		name   string
+		mutate func(*evidence.RawRecord)
+	}{
+		{"zero sequence", func(r *evidence.RawRecord) { r.SourceSeq = 0 }},
+		{"invalid digest", func(r *evidence.RawRecord) { r.RecordSHA256 = "bad" }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			bad := record
+			tc.mutate(&bad)
+			if err := bad.Validate(); err == nil {
+				t.Fatal("Go validator accepted a schema-negative raw record")
+			}
+		})
+	}
+
+	digest := strings.Repeat("a", 64)
+	manifest := evidence.RunEvidenceManifest{
+		SchemaVersion: "v1", RunID: "run", RunSpecDigest: digest,
+		ObservationPlanDigest: digest, CapabilityManifestDigest: digest,
+		SensorHealthDigest: digest, TrackedEventChainHead: digest,
+		RawChainHeads: map[string]string{}, Artifacts: []evidence.ArtifactDigest{},
+		MerkleRoot: digest, SealedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+	}
+	if err := manifest.Validate(); err != nil {
+		t.Fatalf("schema-positive manifest: %v", err)
+	}
+	manifest.MerkleRoot = "bad"
+	if err := manifest.Validate(); err == nil {
+		t.Fatal("Go validator accepted a schema-negative manifest")
+	}
+}
 
 func TestPhase0GoldenAcceptance(t *testing.T) {
 	file, err := os.Open("../../testdata/golden/tracked-events.v1.jsonl")
@@ -114,5 +195,26 @@ func TestRawEvidenceStageRequiresCoverageAndMatchingChainHead(t *testing.T) {
 	}
 	if !report.RawEvidenceValidated || !report.RawEvidenceIntegrityValid || report.VerifiedEligible {
 		t.Fatalf("unexpected raw evidence report: %#v", report)
+	}
+}
+
+func TestVerifyRejectsDroppedPlaintextAtFlowBoundary(t *testing.T) {
+	file, err := os.Open("../../testdata/golden/tracked-events.v1.jsonl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer file.Close()
+	log, err := eventlog.DecodeJSONL(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A flow accounting record that omits bytes observed by the plaintext
+	// assembler must fail closed; otherwise dropped evidence could look valid.
+	_, err = Verify(Input{Events: log, Flows: []plaintext.FlowAccounting{{
+		ConnectionID: "conn-1", StreamID: "stream-1", Direction: "egress",
+		Bytes: 1, SHA256: backend.SHA256Hex([]byte("wrong")),
+	}}})
+	if err == nil {
+		t.Fatal("Verify accepted dropped or mismatched plaintext accounting")
 	}
 }
