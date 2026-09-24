@@ -1,6 +1,11 @@
-# Trajectory Event Tracking Summary
+# Conversation event contract
 
-In DeepSeek Harness (DSH), the conversation trajectory is reconstructed from an append-only event stream. Rather than mutating session state directly, the harness records discrete, immutable lifecycle events. These events capture user inputs, model configuration snapshots, token accounting, streaming deltas, and tool executions.
+This file defines the inherited conversation events used by the benchmark:
+user input, model configuration, token accounting, streaming output, and tool
+intent/results. The benchmark also appends observed system and network events
+to the same log. Their provenance and mapping are described in
+[architecture.md](architecture.md); delivery work is tracked in
+[tasks.md](tasks.md).
 
 ---
 
@@ -202,4 +207,3 @@ These events record tool actions requested by the model and their resulting exec
 - **Purpose**: Demarcates pre-seeded history from live events when resuming an existing session or forking from a parent session.
 - **Tracked Fields**:
   - **`data`**: Empty record (`{}`). Position in the log and sequence number define the boundary.
-

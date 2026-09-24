@@ -173,7 +173,6 @@ The `gateway-flows.mitm` archive is the authoritative proxy capture;
 evidence. `dns-observation.json` reports the number of rendered DNS query lines
 (including the readiness probe); zero lines alone do not degrade sensor health.
 
-Loopback never crosses the host-side veth. It remains observable only through
-the structured gVisor sources until the Milestone 4 Netstack instrumentation is
-implemented. Missing or dropped data remains explicit degraded health evidence,
-as required by Milestone 3.
+Loopback never crosses the host-side veth. SecCheck may report related socket
+activity, but complete loopback observation requires future Netstack hooks.
+Missing or dropped data remains explicit degraded health evidence.

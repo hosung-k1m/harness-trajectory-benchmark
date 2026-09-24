@@ -98,7 +98,7 @@ type TokenUsage struct {
 	TotalTokens      *uint64 `json:"totalTokens,omitempty"`
 }
 
-// Typed payloads for every core event in trackedEvents.md.
+// Typed payloads for every core event in agentDocs/trackedEvents.md.
 type TurnStartData struct {
 	Turn uint64 `json:"turn"`
 }
