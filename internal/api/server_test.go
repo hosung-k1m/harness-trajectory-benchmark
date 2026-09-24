@@ -98,6 +98,25 @@ func TestPaginationEmptyCursorStillHonorsLimit(t *testing.T) {
 	}
 }
 
+func TestBackendCatalogIncludesGvisor(t *testing.T) {
+	h := NewHandler(nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/v1/backends", nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("backend catalog status=%d", w.Code)
+	}
+	var page Page[CapabilityManifest]
+	if err := json.Unmarshal(w.Body.Bytes(), &page); err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range page.Items {
+		if item.Backend == "gvisor-container" {
+			return
+		}
+	}
+	t.Fatal("gvisor-container missing from backend catalog")
+}
+
 func TestHandlerRoutesAndIdempotencyContracts(t *testing.T) {
 	h := NewHandler(nil)
 	for _, target := range []string{"/v1/compatibility", "/v1/schemas", "/v1/backends"} {

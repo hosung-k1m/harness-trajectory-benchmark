@@ -9,9 +9,12 @@ Complete tasks in order within a milestone; keep the CLI and web UI on the same
 tests before claiming a verification capability.
 
 **Completed Phase 1 scope:** The control-plane and evidence pipeline was
-validated with deterministic mock-data end-to-end tests. Real gVisor runtime
-provisioning starts in Phase 2. Mock acquisition remains explicitly labelled
-and never confers verified-execution eligibility.
+validated with deterministic mock-data end-to-end tests. Phase 2 has since
+added and accepted a real gVisor runtime path with best-effort raw capture.
+Mock acquisition remains explicitly labelled and never confers
+verified-execution eligibility; Phase 2 capture also remains ineligible for
+verified status because it does not prove complete observation or plaintext
+capture.
 
 **Phase 1 acceptance method:** The gate starts the real control-plane
 binary for local-process lifecycle and restart checks, and a child-process
@@ -27,13 +30,13 @@ Fixtures must not depend on live provider availability or billing.
 
 ## Phase status
 
-Status last reviewed: 2026-09-22.
+Status last reviewed: 2026-09-23.
 
 | Phase | Scope | Status | Acceptance authority |
 | --- | --- | --- | --- |
 | Phase 0 | Contracts and deterministic fixtures | **Complete** | Phase 0 acceptance gate and historical audit below |
 | Phase 1 | Durable control plane and mock-data end-to-end acceptance | **Complete** | Milestones 1 and 2 |
-| Phase 2 | Best-effort raw gVisor system and network capture | **Active** | Milestone 3 |
+| Phase 2 | Best-effort raw gVisor system and network capture | **Complete** | Milestone 3 |
 | Phase 3 | Structured gVisor observation and complete capture profiles | **Planned** | Milestone 4 |
 | Phase 4 | Provider protocols, MCP, and semantic correlation | **Planned** | Milestone 5 |
 | Phase 5 | Public verification and admission policy | **Planned** | Milestone 6 |
@@ -46,7 +49,7 @@ the recorded status of either phase.
 ## Implemented baseline
 
 The checkmarks below mean the named code is present. Milestone acceptance is
-assessed separately in the audit below.
+assessed in the milestone records below.
 
 - [x] Phase 0 contracts, pinned schemas, golden fixtures, replay, projections,
   plaintext assembly, raw-chain checks, and profile validation.
@@ -54,12 +57,23 @@ assessed separately in the audit below.
   appender, hash-chained local raw records, local-process execution, normalizer,
   shared API and CLI lifecycle, minimal `/web/` status view, and a development
   Ed25519-signed evidence manifest.
-- [x] Local-process runs reject `verified`; `make check` passes on this baseline.
+- [x] Phase 1 persistence, restart, idempotency, portable signed bundle
+  export/validation, mock system/network/provider observations, and the CLI/API
+  end-to-end gate.
+- [x] Phase 2 gVisor container lifecycle and best-effort raw system/network
+  capture, capture-health reporting, signed raw-only bundles, and local-process
+  baseline comparison through the shared `/v1` API.
+- [x] Both configured execution backends reject `verified`; the current
+  implementation remains a development and capture prototype.
 
-The local-process backend runs trusted workloads on the host. Its dedicated
-working directory is not a sandbox. It has no filesystem, DNS, boundary-flow,
-or network-plaintext sensor. Neither its manifest signature nor its current
-`ineligible` report establishes a verified run.
+The compatibility backend runs trusted workloads on the host. Its dedicated
+working directory is not a sandbox and it has no filesystem, DNS,
+boundary-flow, or network-plaintext sensor. The gVisor backend runs inside a
+gVisor container but captures system and network data on a best-effort basis;
+host-veth startup gaps, proxy bypass, opaque protocols, and incomplete
+DNS/gateway visibility remain. Both backends reject verified runs. Their
+signatures establish integrity of retained evidence, not completeness of
+observation.
 
 ## Historical audit before persistence/export and mock-data acceptance (2026-09-21)
 
@@ -271,20 +285,45 @@ workload continues unless execution itself can no longer proceed. Teardown
 drains available collectors, records incomplete drains, seals received
 evidence, and removes run-scoped resources.
 
-- [ ] **P2.1** Implement gVisor lifecycle with per-run cgroup, network
+- [x] **P2.1** Implement gVisor lifecycle with per-run cgroup, network
   namespace, veth pair, filesystem scope, and artifact scope.
-- [ ] **P2.2** Capture `runsc --strace`, runtime logs, SecCheck protobuf frames,
+- [x] **P2.2** Capture `runsc --strace`, runtime logs, SecCheck protobuf frames,
   stdout, stderr, resource snapshots, and before-and-after filesystem evidence
   as separate best-effort raw sources.
-- [ ] **P2.3** Capture full packets on the host side of the per-run veth along
+- [x] **P2.3** Capture full packets on the host side of the per-run veth along
   with network configuration, counters, controlled DNS logs, and optional
   trusted-gateway output for supported protocols.
-- [ ] **P2.4** Seal exact raw source bytes using per-source receipt sequences,
+- [x] **P2.4** Seal exact raw source bytes using per-source receipt sequences,
   hash chains, artifact digests, a capture manifest, and explicit health
   metadata. Sensor loss degrades the capture but does not fail the workload.
-- [ ] **P2.5** Run the same deterministic workload under the local-process
+- [x] **P2.5** Run the same deterministic workload under the local-process
   compatibility baseline and gVisor; compare workload results and artifacts,
   and document the capture surfaces and known gaps.
+
+**Milestone 3 acceptance (2026-09-23):** Reprovisioned the arm64 `gvisor-dev`
+Lima VM from the pinned release and source. The trace-profile validator and
+both SecCheck smoke tests passed, including `codex --version` in the agent
+image. Through `/v1`, the same shell command completed under
+`compat-local-process` (`run-02f024ebfb6d31a6488bf977527a90be`) and
+`gvisor-container` (`run-01926a7545c3a9d676e093366db7db1b`). Both retained
+identical `stdout-v1`, `stderr-v1`, and `artifact-v1` bytes. The gVisor bundle
+also retained five runsc logs, 5,284 SecCheck frame bytes, bridge and host-veth
+packet captures, start and stop network configuration, 137 DNS log bytes,
+gateway artifacts, resource samples, before and after workspace snapshots,
+and capture health. Both exported bundles validated with the local Ed25519
+public key; changing one retained stdout artifact caused offline validation to
+exit 6 with a digest mismatch. The live gVisor capture reported packet and
+network-configuration drops and a veth startup gap while the workload still
+completed. A separate `/v1` stop run (`run-cd22fc2a4aeb1de12ef406d8d03ded1b`)
+reached `stopped`, retained a valid sealed bundle, and left no matching Docker
+container, network, bridge/veth, cgroup, or workspace directory.
+
+The compatibility backend retains process and output evidence. The gVisor
+backend adds best-effort system, packet, DNS, network configuration, resource,
+and filesystem observations. The gateway flow archive was empty for the DNS
+workload; host-veth capture starts after container creation, and short-lived
+containers may exit before host-veth discovery. Both backends remain ineligible
+for verified status. Phase 2 makes no plaintext-completeness claim.
 
 **Acceptance gate:** Run the deterministic workload on gVisor through the
 public API. Retain stdout, stderr, runsc and available SecCheck records,

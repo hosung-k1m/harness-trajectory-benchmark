@@ -1,0 +1,210 @@
+diff --git a/examples/seccheck/server.cc b/examples/seccheck/server.cc
+index f19de54..a59ced9 100644
+--- a/examples/seccheck/server.cc
++++ b/examples/seccheck/server.cc
+@@ -12,7 +12,9 @@
+ // See the License for the specific language governing permissions and
+ // limitations under the License.
+ 
++#include <arpa/inet.h>
+ #include <err.h>
++#include <fcntl.h>
+ #include <pthread.h>
+ #include <stdarg.h>
+ #include <stdio.h>
+@@ -22,6 +24,7 @@
+ #include <sys/un.h>
+ #include <unistd.h>
+ 
++#include <algorithm>
+ #include <array>
+ #include <cerrno>
+ #include <cstdint>
+@@ -29,6 +32,7 @@
+ #include <cstring>
+ #include <functional>
+ #include <string>
++#include <unordered_map>
+ #include <vector>
+ 
+ #include "absl/cleanup/cleanup.h"
+@@ -56,6 +60,57 @@ struct Header {
+ };
+ #pragma pack(pop)
+ 
++struct Capture {
++  int fd;
++  std::string id;
++  uint64_t frames = 0;
++  uint64_t oversize = 0;
++  uint32_t reported_drops = 0;
++};
++
++std::string capture_dir;
++std::unordered_map<int, Capture> captures;
++
++bool WriteAll(int fd, const void* data, size_t size) {
++  const auto* bytes = static_cast<const char*>(data);
++  while (size != 0) {
++    const ssize_t n = write(fd, bytes, size);
++    if (n < 0 && errno == EINTR) {
++      continue;
++    }
++    if (n <= 0) {
++      return false;
++    }
++    bytes += n;
++    size -= n;
++  }
++  return true;
++}
++
++void FinishCapture(int client) {
++  const auto it = captures.find(client);
++  if (it == captures.end()) {
++    return;
++  }
++  Capture& capture = it->second;
++  const bool synced = fsync(capture.fd) == 0;
++  close(capture.fd);
++  if (synced) {
++    const std::string path = capture_dir + "/" + capture.id + ".done";
++    const int fd = open(path.c_str(), O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0600);
++    if (fd >= 0) {
++      const std::string status = "{\"frames\":" + std::to_string(capture.frames) +
++          ",\"oversize\":" + std::to_string(capture.oversize) +
++          ",\"reportedDrops\":" + std::to_string(capture.reported_drops) + "}\n";
++      if (!WriteAll(fd, status.data(), status.size()) || fsync(fd) != 0) {
++        fprintf(stderr, "seccheck status write failed for %s\n", capture.id.c_str());
++      }
++      close(fd);
++    }
++  }
++  captures.erase(it);
++}
++
+ void Log(const char* fmt, ...) {
+   if (!quiet) {
+     va_list ap;
+@@ -212,13 +267,66 @@ void DispatchMessage(absl::string_view buf) {
+ 
+ bool ReadAndUnpack(int client) {
+   std::array<char, kMaxEventSize> buf;
+-  int bytes = read(client, buf.data(), buf.size());
++  const int bytes = recv(client, buf.data(), buf.size(), MSG_TRUNC);
+   if (bytes < 0) {
+     err(1, "read");
+   }
+   if (bytes == 0) {
+     return false;
+   }
++  if (bytes > static_cast<int>(buf.size()) || bytes < static_cast<int>(sizeof(Header))) {
++    if (auto it = captures.find(client); it != captures.end()) {
++      ++it->second.oversize;
++    }
++    fprintf(stderr, "seccheck oversized or malformed frame\n");
++    return true;
++  }
++  Header hdr{};
++  memcpy(&hdr, buf.data(), sizeof(hdr));
++  if (hdr.header_size < sizeof(Header) || hdr.header_size > bytes) {
++    if (auto it = captures.find(client); it != captures.end()) {
++      ++it->second.oversize;
++    }
++    fprintf(stderr, "seccheck invalid frame header\n");
++    return true;
++  }
++  if (!capture_dir.empty()) {
++    if (captures.find(client) == captures.end()) {
++      if (hdr.message_type != ::gvisor::common::MESSAGE_CONTAINER_START) {
++        fprintf(stderr, "seccheck first frame has no container identity\n");
++        return true;
++      }
++      ::gvisor::container::Start start;
++      if (!start.ParseFromArray(buf.data() + hdr.header_size, bytes - hdr.header_size)) {
++        fprintf(stderr, "seccheck invalid container start\n");
++        return true;
++      }
++      const std::string& id = start.id();
++      if (id.size() != 64 || !std::all_of(id.begin(), id.end(), [](char c) {
++            return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f');
++          })) {
++        fprintf(stderr, "seccheck invalid container identity\n");
++        return true;
++      }
++      const std::string path = capture_dir + "/" + id + ".frames";
++      const int fd = open(path.c_str(), O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0600);
++      if (fd < 0) {
++        fprintf(stderr, "seccheck raw source open failed for %s\n", id.c_str());
++        return true;
++      }
++      captures.emplace(client, Capture{fd, id});
++    }
++    Capture& capture = captures.at(client);
++    capture.reported_drops = hdr.dropped_count;
++    const uint32_t length = htonl(static_cast<uint32_t>(bytes));
++    if (!WriteAll(capture.fd, &length, sizeof(length)) || !WriteAll(capture.fd, buf.data(), bytes)) {
++      fprintf(stderr, "seccheck raw write failed for %s\n", capture.id.c_str());
++      close(capture.fd);
++      captures.erase(client);
++      return true;
++    }
++    ++capture.frames;
++  }
+   DispatchMessage(absl::string_view(buf.data(), bytes));
+   return true;
+ }
+@@ -245,11 +353,18 @@ void* PollLoop(void* ptr) {
+         // Drain any remaining messages before closing the socket.
+         while (ReadAndUnpack(client)) {
+         }
++        FinishCapture(client);
+         close(client);
+         printf("Connection closed\n");
+       }
+-      if (evts[i].events & EPOLLERR) {
+-        printf("error\n");
++      if ((evts[i].events & EPOLLERR) && !(evts[i].events & (EPOLLRDHUP | EPOLLHUP))) {
++        const int client = evts[i].data.fd;
++        if (auto it = captures.find(client); it != captures.end()) {
++          close(it->second.fd);
++          captures.erase(it);
++        }
++        close(client);
++        fprintf(stderr, "seccheck connection error\n");
+       }
+     }
+   }
+@@ -319,11 +434,16 @@ int main(int argc, char** argv) {
+   if (optind < argc) {
+     path = argv[optind];
+   }
++  if (optind + 1 < argc) {
++    capture_dir = argv[optind + 1];
++  }
+   if (path.empty()) {
+     err(1, "empty file name");
+   }
++  if (access(path.c_str(), F_OK) == 0) {
++    errx(1, "socket path already exists: %s", path.c_str());
++  }
+   printf("Socket address %s\n", path.c_str());
+-  unlink(path.c_str());
+ 
+   int sock = socket(AF_UNIX, SOCK_SEQPACKET, 0);
+   if (sock < 0) {
+@@ -331,9 +451,12 @@ int main(int argc, char** argv) {
+   }
+   auto sock_closer = absl::MakeCleanup([sock] { close(sock); });
+ 
+-  struct sockaddr_un addr;
++  struct sockaddr_un addr{};
+   addr.sun_family = AF_UNIX;
+-  strncpy(addr.sun_path, path.c_str(), path.size() + 1);
++  if (path.size() >= sizeof(addr.sun_path)) {
++    errx(1, "socket path is too long");
++  }
++  memcpy(addr.sun_path, path.c_str(), path.size() + 1);
+   if (bind(sock, reinterpret_cast<struct sockaddr*>(&addr), sizeof(addr))) {
+     err(1, "bind");
+   }

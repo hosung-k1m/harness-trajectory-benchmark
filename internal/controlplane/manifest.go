@@ -25,10 +25,6 @@ func (d *CompatDriver) writeManifest(runID string, run *compatRun, backendEviden
 	if root == "" {
 		return nil
 	}
-	chainHead, err := d.store.RunHashHead(runID)
-	if err != nil {
-		return err
-	}
 	capabilities, err := d.backend.Describe(context.Background())
 	if err != nil {
 		return err
@@ -37,7 +33,15 @@ func (d *CompatDriver) writeManifest(runID string, run *compatRun, backendEviden
 	if err != nil {
 		return err
 	}
-	tracked, err := d.store.ExportEvents(runID)
+	return publishEvidenceBundle(d.store, root, key, runID, run.apiSpec, run.spec, run.plan, capabilities, health, records, result, workloadDir, backendEvidence.ArtifactIDs, backendEvidence.RawChainHeads)
+}
+
+func publishEvidenceBundle(store *api.Store, root string, key ed25519.PrivateKey, runID string, apiSpec api.RunSpec, spec backend.RunSpec, plan backend.ObservationPlan, capabilities backend.CapabilityManifest, health backend.SensorHealth, records []evidence.RawRecord, result api.VerificationResult, workloadDir string, artifactIDs []string, rawHeads map[string]string) error {
+	chainHead, err := store.RunHashHead(runID)
+	if err != nil {
+		return err
+	}
+	tracked, err := store.ExportEvents(runID)
 	if err != nil {
 		return err
 	}
@@ -51,9 +55,9 @@ func (d *CompatDriver) writeManifest(runID string, run *compatRun, backendEviden
 		return nil
 	}
 	for name, v := range map[string]any{
-		"api-run-spec.json":        run.apiSpec,
-		"run-spec.json":            run.spec,
-		"observation-plan.json":    run.plan,
+		"api-run-spec.json":        apiSpec,
+		"run-spec.json":            spec,
+		"observation-plan.json":    plan,
 		"capability-manifest.json": capabilities,
 		"sensor-health.json":       health,
 		"raw-records.json":         records,
@@ -91,7 +95,7 @@ func (d *CompatDriver) writeManifest(runID string, run *compatRun, backendEviden
 		return err
 	}
 	files["workload/raw-records.bin"] = rawFrames
-	for _, name := range backendEvidence.ArtifactIDs {
+	for _, name := range artifactIDs {
 		if name == "" || filepath.Base(name) != name {
 			return fmt.Errorf("unsafe backend artifact name %q", name)
 		}
@@ -104,9 +108,9 @@ func (d *CompatDriver) writeManifest(runID string, run *compatRun, backendEviden
 
 	manifest := evidence.RunEvidenceManifest{
 		SchemaVersion: "v1", RunID: runID,
-		RunSpecDigest: digestJSON(run.spec), ObservationPlanDigest: digestJSON(run.plan),
+		RunSpecDigest: digestJSON(spec), ObservationPlanDigest: digestJSON(plan),
 		CapabilityManifestDigest: capabilities.Digest, SensorHealthDigest: digestJSON(health),
-		TrackedEventChainHead: chainHead, RawChainHeads: backendEvidence.RawChainHeads,
+		TrackedEventChainHead: chainHead, RawChainHeads: rawHeads,
 		SealedAt: time.Now().UTC(),
 	}
 	published, err := buildEvidenceBundle(key, manifest, files)

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/ed25519"
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -296,8 +297,158 @@ func Validate(b Bundle, publicKey ed25519.PublicKey) (Result, error) {
 		}
 		expectedHeads[source] = head
 	}
-	if len(expectedHeads) != len(b.Manifest.RawChainHeads) {
+	if len(expectedHeads) != len(b.Manifest.RawChainHeads) && capabilities.Backend != "gvisor-container" {
 		return fail("manifest raw chain head count does not match the raw sources")
+	}
+	if capabilities.Backend == "gvisor-container" {
+		if capabilities.TrustDomain != "lima-vm-docker-daemon" || apiSpec.Backend != capabilities.Backend || spec.Verified || !startSeen || len(records) == 0 {
+			return fail("invalid gvisor raw-only declaration")
+		}
+		if err := backend.ValidatePlanAgainstManifest(plan, capabilities, false); err != nil {
+			return fail("gvisor observation plan: %v", err)
+		}
+		if stored.Status != "ineligible" || stored.Eligible || stored.TrackedEventChainHead != head || stored.EventCount != uint64(len(tracked)) {
+			return fail("gvisor raw-only verification result does not match the trajectory")
+		}
+		for _, event := range tracked {
+			if !strings.HasPrefix(event.Type, "run/") {
+				return fail("gvisor raw-only bundle contains a normalized event")
+			}
+		}
+		chains := make(map[evidence.RawSource][]evidence.RawRecord)
+		for _, record := range records {
+			source := evidence.RawSource{SensorID: record.SensorID, BootID: record.BootID}
+			chains[source] = append(chains[source], record)
+		}
+		for source, chain := range chains {
+			seed, err := evidence.ChainSeed(specDigest, planDigest, source.SensorID, source.BootID)
+			if err != nil {
+				return fail("gvisor raw chain seed: %v", err)
+			}
+			computed, err := evidence.ValidateChain(chain, seed)
+			if err != nil || computed != expectedHeads[source] {
+				return fail("gvisor raw chain %s/%s: %v", source.SensorID, source.BootID, err)
+			}
+		}
+		healthBySource := make(map[evidence.RawSource]backend.SensorSourceHealth, len(health.Sources))
+		if len(health.Sources) != len(b.Manifest.RawChainHeads) {
+			return fail("gvisor health and raw chain heads disagree on source count")
+		}
+		seenSensors := make(map[string]bool, len(health.Sources))
+		for _, status := range health.Sources {
+			if seenSensors[status.SensorID] {
+				return fail("gvisor health has ambiguous boots for sensor %s", status.SensorID)
+			}
+			seenSensors[status.SensorID] = true
+			source := evidence.RawSource{SensorID: status.SensorID, BootID: status.BootID}
+			healthBySource[source] = status
+			claimed, ok := b.Manifest.RawChainHeads[status.SensorID]
+			if !ok {
+				return fail("gvisor raw source %s lacks a chain head", status.SensorID)
+			}
+			if len(chains[source]) == 0 {
+				seed, err := evidence.ChainSeed(specDigest, planDigest, status.SensorID, status.BootID)
+				if err != nil || claimed != seed || status.ObservedStart != 0 || status.ObservedEnd != 0 {
+					return fail("gvisor empty source %s/%s has an invalid head or health", status.SensorID, status.BootID)
+				}
+			}
+		}
+		for source, chain := range chains {
+			status, ok := healthBySource[source]
+			if !ok || status.ObservedStart != 1 || status.ObservedEnd != uint64(len(chain)) {
+				return fail("gvisor raw source %s/%s does not match capture health", source.SensorID, source.BootID)
+			}
+		}
+		for _, record := range records {
+			switch record.RecordType {
+			case "workload/stdout", "workload/stderr", "workspace/snapshot", "runsc/log", "network/packet", "network/config", "gateway/flow", "gateway/view", "dns/log":
+				if record.Encoding != "json" {
+					return fail("gvisor source %s has invalid artifact encoding", record.SensorID)
+				}
+				var meta struct {
+					Artifact  string `json:"artifact"`
+					SHA256    string `json:"sha256"`
+					Size      uint64 `json:"size"`
+					Interface string `json:"interface,omitempty"`
+					Direction string `json:"direction,omitempty"`
+					Phase     string `json:"phase,omitempty"`
+				}
+				if err := decodeStrict(record.Payload, &meta); err != nil {
+					return fail("gvisor artifact reference: %v", err)
+				}
+				if record.RecordType == "network/packet" && (meta.Interface == "" || meta.Phase != "" || (meta.Direction != "ingress" && meta.Direction != "egress") || (record.SensorID != "network/packets/bridge" && record.SensorID != "network/packets/veth")) {
+					return fail("gvisor packet source lacks interface or direction")
+				}
+				if record.RecordType == "network/config" && (meta.Interface == "" || meta.Direction != "" || (meta.Phase != "start" && meta.Phase != "stop") || record.SensorID != "network/config") {
+					return fail("gvisor network config source has invalid interface or phase")
+				}
+				if record.RecordType == "gateway/flow" && record.SensorID != "gateway/flows" || record.RecordType == "gateway/view" && record.SensorID != "gateway/view" || record.RecordType == "dns/log" && record.SensorID != "dns/logs" {
+					return fail("gvisor gateway source identity is invalid")
+				}
+				if (record.RecordType == "gateway/flow" || record.RecordType == "gateway/view" || record.RecordType == "dns/log") && (meta.Interface != "" || meta.Direction != "" || meta.Phase != "") {
+					return fail("gvisor gateway source uses unsupported network metadata")
+				}
+				path := "workload/" + meta.Artifact
+				if meta.Artifact == "" || filepath.Base(meta.Artifact) != meta.Artifact || validBundlePath(path) != nil {
+					return fail("gvisor artifact reference has invalid path %q", meta.Artifact)
+				}
+				content, ok := b.Files[path]
+				if !ok || uint64(len(content)) != meta.Size || sha256Hex(content) != meta.SHA256 {
+					return fail("gvisor artifact %q does not match its raw reference", path)
+				}
+			}
+		}
+		secFrames, hasFrames := b.Files["workload/seccheck.frames"]
+		secDone, hasDone := b.Files["workload/seccheck.done"]
+		partialFrames, hasPartial := b.Files["workload/seccheck.partial"]
+		_, hasPartialStatus := b.Files["workload/seccheck.partial-status"]
+		if (hasFrames && hasPartial) || (hasDone && hasPartialStatus) || (hasDone && !hasFrames) {
+			return fail("gvisor SecCheck artifacts contain conflicting capture states")
+		}
+		if !hasFrames && hasPartial {
+			secFrames = partialFrames
+		}
+		var secHealth backend.SensorSourceHealth
+		secKnown := false
+		for source, status := range healthBySource {
+			if source.SensorID == "seccheck/remote" {
+				secHealth, secKnown = status, true
+			}
+		}
+		offset := 0
+		var frameCount uint64
+		for _, record := range records {
+			if record.SensorID != "seccheck/remote" && record.RecordType != "seccheck/frame" {
+				continue
+			}
+			if record.SensorID != "seccheck/remote" || record.RecordType != "seccheck/frame" || record.Encoding != "protobuf" || (!hasFrames && !hasPartial) || len(record.Payload) == 0 || len(record.Payload) > 300*1024 || len(secFrames)-offset < 4 {
+				return fail("gvisor SecCheck frame source is invalid")
+			}
+			length := binary.BigEndian.Uint32(secFrames[offset : offset+4])
+			offset += 4
+			if length != uint32(len(record.Payload)) || len(secFrames)-offset < len(record.Payload) || !bytes.Equal(secFrames[offset:offset+len(record.Payload)], record.Payload) {
+				return fail("gvisor SecCheck raw artifact disagrees with source record")
+			}
+			offset += len(record.Payload)
+			frameCount++
+		}
+		if (frameCount == 0 && (hasFrames || hasDone)) || (hasFrames && offset != len(secFrames)) {
+			return fail("gvisor SecCheck raw artifact has unreferenced bytes")
+		}
+		if frameCount > 0 && hasDone {
+			var status struct {
+				Frames        uint64 `json:"frames"`
+				Oversize      uint64 `json:"oversize"`
+				ReportedDrops uint64 `json:"reportedDrops"`
+			}
+			if err := decodeStrict(secDone, &status); err != nil || status.Frames != frameCount || status.Oversize > ^uint64(0)-status.ReportedDrops || secHealth.Drops < status.Oversize+status.ReportedDrops || !secHealth.Drained || !secHealth.Stopped {
+				return fail("gvisor SecCheck drain status disagrees with captured frames or health")
+			}
+		} else if (frameCount > 0 || hasPartial || hasPartialStatus) && (!secKnown || secHealth.Drained || secHealth.Stopped || secHealth.Drops == 0 && secHealth.ParseFailures == 0) {
+			return fail("gvisor SecCheck partial source was not recorded as loss")
+		}
+		report := verification.Report{IntegrityValid: true, LogIntegrityValid: true, RawEvidenceValidated: true, RawEvidenceIntegrityValid: true, EventCount: uint64(len(tracked)), Ineligibility: []string{"gvisor Phase 2 retains raw evidence only"}}
+		return Result{RunID: b.RunID, TrackedEventChainHead: head, IntegrityValid: true, Eligible: false, Report: report}, nil
 	}
 
 	type observationEvidence struct {

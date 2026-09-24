@@ -19,6 +19,7 @@ import (
 	"github.com/hosung-k1m/harness-trajectory-benchmark/internal/api"
 	"github.com/hosung-k1m/harness-trajectory-benchmark/internal/appender"
 	"github.com/hosung-k1m/harness-trajectory-benchmark/internal/backend/compat"
+	"github.com/hosung-k1m/harness-trajectory-benchmark/internal/backend/gvisor"
 	"github.com/hosung-k1m/harness-trajectory-benchmark/internal/controlplane"
 )
 
@@ -105,7 +106,7 @@ func validateListenAddress(address string) error {
 	return nil
 }
 
-func newControlPlane(dataDir string) (*api.Store, *controlplane.CompatDriver, error) {
+func newControlPlane(dataDir string) (*api.Store, *controlplane.DispatchDriver, error) {
 	factory, err := durableEventLogFactory(dataDir)
 	if err != nil {
 		return nil, nil, err
@@ -118,11 +119,20 @@ func newControlPlane(dataDir string) (*api.Store, *controlplane.CompatDriver, er
 	if err != nil {
 		return nil, nil, err
 	}
-	backend := compat.New(compat.Config{RootDir: filepath.Join(root, "workloads")})
-	driver := controlplane.NewCompatDriver(backend)
-	if err := driver.ConfigureManifest(root, key); err != nil {
+	compatBackend := compat.New(compat.Config{RootDir: filepath.Join(root, "workloads")})
+	compatDriver := controlplane.NewCompatDriver(compatBackend)
+	if err := compatDriver.ConfigureManifest(root, key); err != nil {
 		return nil, nil, err
 	}
+	gvisorBackend := gvisor.New(gvisor.Config{RootDir: filepath.Join(root, "gvisor-runs")})
+	gvisorDriver := controlplane.NewGvisorDriver(gvisorBackend)
+	if err := gvisorDriver.ConfigureManifest(root, key); err != nil {
+		return nil, nil, err
+	}
+	driver := controlplane.NewDispatchDriver(map[string]api.RunDriver{
+		"compat-local-process": compatDriver,
+		"gvisor-container":     gvisorDriver,
+	})
 	store, err := api.OpenStore(root, factory, driver)
 	if err != nil {
 		return nil, nil, err
@@ -131,7 +141,7 @@ func newControlPlane(dataDir string) (*api.Store, *controlplane.CompatDriver, er
 		_ = store.Close()
 		return nil, nil, err
 	}
-	if err := driver.ValidatePersistedBundles(); err != nil {
+	if err := compatDriver.ValidatePersistedBundles(); err != nil {
 		_ = store.Close()
 		return nil, nil, err
 	}

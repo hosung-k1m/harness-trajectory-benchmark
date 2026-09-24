@@ -655,10 +655,16 @@ func NewHandler(store *Store) http.Handler {
 			method(w, http.MethodGet)
 			return
 		}
-		writeJSON(w, http.StatusOK, Page[CapabilityManifest]{Items: []CapabilityManifest{{
-			Backend: "compat-local-process", Version: "phase1", SchemaVersion: "v1",
-			Capabilities: []string{"process:best_effort", "workload/stdout:complete", "workload/stderr:complete", "network/plaintext:unsupported"},
-		}}})
+		writeJSON(w, http.StatusOK, Page[CapabilityManifest]{Items: []CapabilityManifest{
+			{
+				Backend: "compat-local-process", Version: "phase1", SchemaVersion: "v1",
+				Capabilities: []string{"process:best_effort", "workload/stdout:complete", "workload/stderr:complete", "network/plaintext:unsupported"},
+			},
+			{
+				Backend: "gvisor-container", Version: "phase2.1", SchemaVersion: "v1",
+				Capabilities: []string{"process:best_effort", "filesystem:best_effort", "dns:best_effort", "network/packets:best_effort", "network/plaintext:best_effort"},
+			},
+		}})
 	})
 	mux.HandleFunc("/v1/runs", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost {
