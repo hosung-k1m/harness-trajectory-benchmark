@@ -1,0 +1,23 @@
+[Unit]
+Description=Benchmark gVisor raw SecCheck collector
+Documentation=https://gvisor.dev/docs/user_guide/trace/
+After=local-fs.target
+Before=docker.service
+
+[Service]
+Type=simple
+RuntimeDirectory=benchmark-gvisor
+RuntimeDirectoryMode=0750
+ExecStartPre=/usr/bin/install -d -m 0700 /run/benchmark-gvisor/seccheck
+ExecStartPre=/usr/bin/rm -f /run/benchmark-gvisor/seccheck.sock
+ExecStart=/usr/local/libexec/benchmark-gvisor/seccheck-raw /run/benchmark-gvisor/seccheck.sock /run/benchmark-gvisor/seccheck
+Restart=always
+RestartSec=1s
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=full
+ReadWritePaths=/run/benchmark-gvisor
+
+[Install]
+WantedBy=multi-user.target

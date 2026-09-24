@@ -9,9 +9,17 @@ The platform is delivered in numbered phases. Current phase status,
 implementation tasks, and acceptance gates are maintained only in
 [`tasks.md`](tasks.md).
 
-Mock and local-process runs remain **ineligible for verified execution**.
-The compatibility backend has no filesystem, DNS, boundary-flow, or plaintext
-network sensor and cannot claim complete sandbox observation.
+Phases 0–2 are complete: the repository has versioned contracts, a durable
+shared control plane and evidence pipeline, a deterministic mock-data gate,
+and a best-effort gVisor raw-capture backend. Structured gVisor observation,
+complete plaintext capture, provider and MCP correlation, public admission, and
+a second isolated backend remain planned.
+
+Mock, local-process, and current gVisor runs remain **ineligible for verified
+execution**. The compatibility backend runs on the host without sandbox
+observation. The Phase 2 gVisor backend retains useful system and network
+evidence, but does not yet provide structured event normalization or complete
+plaintext boundary capture.
 
 ## Development
 
@@ -58,12 +66,39 @@ limactl shell gvisor-dev sudo bash "$(pwd)/deploy/gvisor/scripts/smoke-system-ob
 limactl shell gvisor-dev sudo bash "$(pwd)/deploy/gvisor/scripts/smoke-system-observation.sh" --agent
 ```
 
-The smoke tests require received SecCheck frames and runsc logs. They establish
-the runtime prerequisite only: the current control plane does not yet launch a
-gVisor backend. Milestone 3 still needs its persistent raw collector, per-run
-cgroup/veth lifecycle, packet and DNS/gateway capture, source health accounting,
-and evidence sealing. See [`deploy/gvisor/README.md`](deploy/gvisor/README.md)
-for the complete setup, collector boundary, and implementation contract.
+The smoke tests require received SecCheck frames and runsc logs. The control
+plane now exposes the `gvisor-container` backend through `/v1` and retains
+per-run SecCheck frames, runsc logs, stdout/stderr, workspace snapshots,
+resource samples, bridge/veth packet captures, network configuration, and
+best-effort DNS/gateway evidence in signed raw-only bundles. These runs remain
+explicitly ineligible for verified status: proxy bypasses, unsupported
+protocols, opaque encryption, and capture gaps are recorded rather than hidden.
+See [`deploy/gvisor/README.md`](deploy/gvisor/README.md) for the setup and
+collector boundary, and [`tasks.md`](tasks.md) for live acceptance evidence and
+known capture gaps.
+
+### Interactive Codex session
+
+After provisioning the VM and building the agent image, put one
+`CODEX_API_KEY=...` entry in the repository's ignored `.env`, then run from a
+terminal:
+
+```sh
+make codex-interactive
+```
+
+This opens the Codex CLI in a gVisor container with a fresh workspace. The
+launcher reads the key from `.env`, authenticates the interactive CLI, and
+deletes the temporary key file after the session. The container joins an
+internal Docker network; mitmproxy is the only gateway to the Internet. The
+proxy flow archive, terminal output, SecCheck frames, runsc debug logs, and a
+best-effort bridge pcap are retained in the Lima VM at
+`~/benchmark-interactive/RUN_ID/`. The path is printed on exit. This standalone
+interactive entry point is not a control-plane run or a verified evidence
+bundle. The proxy archive covers requests made through mitmproxy; unsupported
+protocols and capture gaps remain outside verified coverage. Raw system and
+proxy evidence can contain the API key and session content, so the output
+directory is private and should be handled as sensitive data.
 
 ## Local development run
 

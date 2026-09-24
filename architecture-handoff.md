@@ -1,6 +1,6 @@
 # Execution-Backend-Agnostic Agent Benchmark Architecture
 
-Status: revised architecture handoff
+Status: target architecture; implementation snapshot through Phase 2 (2026-09-23)
 
 Normative trajectory contract: [`trackedEvents.md`](trackedEvents.md)
 
@@ -16,7 +16,7 @@ Build a public agent-harness benchmarking platform that can run arbitrary harnes
 
 The application is agent-native. Its primary automation surface is a Go CLI designed for use by coding agents, benchmark harnesses, scripts, and CI systems. A web UI provides a human-facing surface for configuring runs, monitoring execution, exploring trajectories, inspecting evidence, and comparing results. The CLI and web UI use the same versioned control-plane API and authorization model; neither has a private execution path.
 
-The platform must capture:
+The target platform must capture:
 
 - the complete harness conversation trajectory defined by `trackedEvents.md`;
 - backend-observed process, filesystem, IPC, resource, DNS, and network activity;
@@ -30,13 +30,26 @@ There is one normalized append-only run log: the **TrackedEvent log**. There is 
 
 Raw evidence remains separate from the TrackedEvent log so that normalization can be audited and replayed.
 
+The current implementation is a development platform, not yet this complete
+capture system. Its completed slices and the boundary between implemented and
+planned behavior are summarized in [Section 4.2](#42-current-implementation).
+
 ## 2. Bounded claim
 
 The platform should make this claim:
 
 > Within the run's declared capability profile, every external system interaction mediated by the execution backend was observed by a measured sensor. Every raw observation was either normalized into the append-only TrackedEvent log or represented by an explicit, hash-linked batch event. Sensor loss, unsupported paths, and attempted bypasses are recorded in that same log and affect verification eligibility.
 
-The platform must not claim to record private in-memory computation or every CPU instruction. It does claim plaintext completeness for network traffic that crosses the sandbox boundary.
+The target platform must not claim to record private in-memory computation or
+every CPU instruction. Verified profiles will require plaintext completeness
+for network traffic that crosses the sandbox boundary.
+
+**Current boundary:** The local-process compatibility backend and the Phase 2
+gVisor backend are both ineligible for verified status. The gVisor backend
+captures best-effort raw observations and explicitly records known gaps, but
+does not normalize backend observations into system `TrackedEvent`s or prove
+complete plaintext capture. See [Section 4.2](#42-current-implementation) and
+the acceptance record in [`tasks.md`](tasks.md).
 
 "All network activity" means the complete plaintext content sent out of or received by the sandbox, together with connection and protocol metadata. Ciphertext alone does not satisfy this requirement. The mechanism that obtains plaintext may be transparent TLS interception that preserves the original destination, TLS key extraction and reconstruction, pre-encryption/post-decryption instrumentation, a trusted guest component, or another backend-specific method. A backend that cannot produce plaintext for a connection must deny that connection or mark the run ineligible for verification.
 
@@ -146,6 +159,48 @@ The CLI and web UI depend on one versioned API that provides:
 - consistent authentication, authorization, audit, and rate-limit behavior.
 
 The web UI must not introduce operations that cannot be performed through the CLI and API. This keeps the platform automatable by agents and prevents browser-only benchmark workflows.
+
+## 4.2 Current implementation
+
+The implementation through Phase 2 has three completed slices:
+
+- **Contracts and deterministic fixtures (Phase 0):** versioned Go contracts,
+  pinned JSON Schemas, golden and negative fixtures, event replay and
+  projections, plaintext stream assembly, raw-chain validation, and verified
+  profile checks.
+- **Durable control plane and mock-data acceptance (Phase 1):** a shared `/v1`
+  API used by the CLI and `/web/`, persistent run and idempotency state, a
+  single-writer TrackedEvent log, local-process execution, evidence signing and
+  bundle export/validation, and test-only mock observations for end-to-end
+  coverage. Mock evidence validates pipeline behavior; it does not establish
+  real isolation or capture.
+- **Best-effort gVisor capture (Phase 2):** `DispatchDriver` routes
+  `gvisor-container` runs to the gVisor adapter. The adapter manages a
+  per-run Docker container using the pinned `runsc-benchmark` runtime inside a
+  Lima VM, with a run-scoped network and workspace. It retains runsc logs,
+  SecCheck frames, stdout/stderr, resource samples, workspace snapshots,
+  network configuration, bridge and host-veth packet captures, and available
+  DNS and gateway artifacts as independently chained raw evidence. A signed
+  raw-only bundle binds the retained artifacts, capture health, and run
+  manifest. Collector gaps degrade the evidence while allowing the workload
+  to complete, subject to execution failures.
+
+The control plane still appends and seals run-lifecycle TrackedEvents for
+gVisor runs, but the backend's system and network observations remain raw; the
+Phase 2 bundle does not claim they were normalized into the event log. The
+compatibility backend has process/output evidence but runs on the host and is
+not a sandbox. The standalone `make codex-interactive` launcher is an
+operational gVisor session with its own retained files; it is not a control
+plane run or a signed benchmark evidence bundle.
+
+The current evidence is useful for development and capture experiments, but it
+does not meet the target verified profile. Known gaps include startup coverage
+on the host veth, proxy bypass, unsupported protocols and opaque encryption,
+incomplete DNS/gateway visibility, and the absence of structured gVisor
+normalization and fail-closed capture. Phases 3–6 address those gaps and
+additional backend, protocol, correlation, and admission work.
+[`tasks.md`](tasks.md) remains the source of truth for milestone status and
+acceptance evidence.
 
 ## 5. Contracts
 
@@ -955,11 +1010,12 @@ Use one Go module initially. Keep backend implementations under `internal` and e
 
 ## 19. Delivery tracking
 
-This document defines the stable target architecture and contracts. Delivery
-status, phase scope, implementation tasks, sequencing, and acceptance gates are
-maintained only in [`tasks.md`](tasks.md). Keeping operational status out of the
-architecture prevents completed work and current gates from diverging across
-multiple documents.
+This document defines the target architecture and contracts and records the
+implemented system boundary in [Section 4.2](#42-current-implementation).
+[`tasks.md`](tasks.md) remains the source of truth for phase status, task
+completion, sequencing, dated acceptance evidence, and remaining gates. Update
+the implementation snapshot when a phase materially changes the system shape;
+do not duplicate detailed test logs or acceptance transcripts here.
 
 ## 20. Architectural decisions
 

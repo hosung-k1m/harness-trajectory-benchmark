@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# Docker invokes this wrapper for every runsc-benchmark workload. Do not let a
+# workload start while the VM-owned SecCheck listener is unavailable.
+set -euo pipefail
+
+socket=/run/benchmark-gvisor/seccheck.sock
+service=benchmark-gvisor-seccheck.service
+
+requires_collector=false
+for arg in "$@"; do
+  case "${arg}" in
+    create|run)
+      requires_collector=true
+      break
+      ;;
+  esac
+done
+
+if [[ "${requires_collector}" == true ]]; then
+  if ! systemctl is-active --quiet "${service}" || [[ ! -S "${socket}" ]]; then
+    echo "${service} is not ready; refusing to start a runsc-benchmark workload" >&2
+    exit 1
+  fi
+fi
+
+exec /usr/local/bin/runsc "$@"

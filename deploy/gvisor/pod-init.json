@@ -12,6 +12,10 @@
         "context_fields": ["time", "container_id", "group_id", "process_name"]
       },
       {
+        "name": "sentry/execve",
+        "context_fields": ["time", "container_id", "group_id", "process_name", "cwd"]
+      },
+      {
         "name": "sentry/task_exit",
         "context_fields": ["time", "container_id", "group_id", "process_name"]
       },
@@ -33,7 +37,39 @@
         "context_fields": ["time", "container_id", "group_id", "process_name"]
       },
       {
+        "name": "syscall/read/enter",
+        "context_fields": ["time", "container_id", "group_id", "process_name", "cwd"]
+      },
+      {
+        "name": "syscall/write/enter",
+        "context_fields": ["time", "container_id", "group_id", "process_name", "cwd"]
+      },
+      {
+        "name": "syscall/pipe2/enter",
+        "context_fields": ["time", "container_id", "group_id", "process_name"]
+      },
+      {
+        "name": "syscall/socketpair/enter",
+        "context_fields": ["time", "container_id", "group_id", "process_name"]
+      },
+      {
+        "name": "syscall/sysno/129/enter",
+        "context_fields": ["time", "container_id", "group_id", "process_name"]
+      },
+      {
         "name": "syscall/socket/enter",
+        "context_fields": ["time", "container_id", "group_id", "process_name"]
+      },
+      {
+        "name": "syscall/bind/enter",
+        "context_fields": ["time", "container_id", "group_id", "process_name"]
+      },
+      {
+        "name": "syscall/listen/enter",
+        "context_fields": ["time", "container_id", "group_id", "process_name"]
+      },
+      {
+        "name": "syscall/accept/enter",
         "context_fields": ["time", "container_id", "group_id", "process_name"]
       },
       {
@@ -48,6 +84,7 @@
     "sinks": [
       {
         "name": "remote",
+        "ignore_setup_error": true,
         "config": {
           "endpoint": "/run/benchmark-gvisor/seccheck.sock"
         }

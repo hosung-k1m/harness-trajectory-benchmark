@@ -1,22 +1,24 @@
-.PHONY: all fmt fmt-check vet test test-race test-e2e schema-check check build
+.PHONY: all fmt fmt-check vet test test-race test-e2e schema-check check build codex-interactive
+
+PROJECT_PACKAGES := ./cmd/... ./internal/... ./pkg/...
 
 all: check
 
 fmt:
-	gofmt -w $$(find . -name '*.go' -not -path './vendor/*')
+	gofmt -w $$(find . -name '*.go' -not -path './vendor/*' -not -path './dist/*')
 
 fmt-check:
-	@test -z "$$(gofmt -l $$(find . -name '*.go' -not -path './vendor/*'))" || \
+	@test -z "$$(gofmt -l $$(find . -name '*.go' -not -path './vendor/*' -not -path './dist/*'))" || \
 		{ echo 'Go files need formatting; run make fmt' >&2; exit 1; }
 
 vet:
-	go vet ./...
+	go vet $(PROJECT_PACKAGES)
 
 test:
-	go test ./...
+	go test $(PROJECT_PACKAGES)
 
 test-race:
-	go test -race ./...
+	go test -race $(PROJECT_PACKAGES)
 
 test-e2e:
 	mkdir -p dist/e2e
@@ -30,5 +32,7 @@ schema-check:
 check: fmt-check vet test-race schema-check
 
 build:
-	go build ./...
+	go build $(PROJECT_PACKAGES)
 
+codex-interactive:
+	limactl shell gvisor-dev -- bash $(CURDIR)/deploy/gvisor/scripts/codex-interactive.sh
